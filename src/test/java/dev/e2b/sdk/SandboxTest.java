@@ -1,0 +1,200 @@
+package dev.e2b.sdk;
+
+import dev.e2b.sdk.client.ConnectionConfig;
+import dev.e2b.sdk.exception.AuthenticationException;
+import dev.e2b.sdk.model.*;
+import okhttp3.mockwebserver.MockResponse;
+import okhttp3.mockwebserver.MockWebServer;
+import org.junit.jupiter.api.*;
+
+import java.io.IOException;
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+/**
+ * Unit tests for the e2b Java SDK using MockWebServer.
+ */
+class SandboxTest {
+
+    private MockWebServer server;
+    private ConnectionConfig config;
+
+    @BeforeEach
+    void setUp() throws IOException {
+        server = new MockWebServer();
+        server.start();
+        config = ConnectionConfig.builder()
+                .apiKey("e2b_test_key")
+                .apiUrl(server.url("/").toString().replaceAll("/$", ""))
+                .domain("localhost")
+                .build();
+    }
+
+    @AfterEach
+    void tearDown() throws IOException {
+        server.shutdown();
+    }
+
+    // -------------------------------------------------------------------------
+    // Sandbox.create
+    // -------------------------------------------------------------------------
+
+    @Test
+    void create_returnsRunningsandbox() {
+        server.enqueue(new MockResponse()
+                .setBody("""
+                        {"sandbox_id":"sbx-abc","sandbox_domain":"sandbox.e2b.app",
+                         "template_id":"base","state":"running","cpu_count":2,
+                         "memory_mb":512,"envd_version":"0.1.0",
+                         "started_at":"2024-01-01T00:00:00Z","end_at":"2024-01-01T00:05:00Z"}
+                        """)
+                .setHeader("Content-Type", "application/json"));
+
+        Sandbox sandbox = Sandbox.create("base", config);
+
+        assertEquals("sbx-abc",            sandbox.getSandboxId());
+        assertEquals("sandbox.e2b.app",    sandbox.getSandboxDomain());
+        assertNotNull(sandbox.getCommands());
+        assertNotNull(sandbox.getFiles());
+        assertNotNull(sandbox.getGit());
+    }
+
+    @Test
+    void create_missingApiKey_throwsAuthenticationException() {
+        ConnectionConfig badConfig = ConnectionConfig.builder()
+                .apiUrl(server.url("/").toString())
+                .build();
+
+        assertThrows(AuthenticationException.class, () -> Sandbox.create("base", badConfig));
+    }
+
+    // -------------------------------------------------------------------------
+    // Sandbox.connect
+    // -------------------------------------------------------------------------
+
+    @Test
+    void connect_existingSandbox() {
+        server.enqueue(new MockResponse()
+                .setBody("""
+                        {"sandbox_id":"sbx-xyz","sandbox_domain":"sandbox.e2b.app",
+                         "template_id":"python","state":"running","cpu_count":2,
+                         "memory_mb":1024,"envd_version":"0.1.0",
+                         "started_at":"2024-01-01T00:00:00Z","end_at":"2024-01-01T00:05:00Z"}
+                        """)
+                .setHeader("Content-Type", "application/json"));
+
+        Sandbox sandbox = Sandbox.connect("sbx-xyz", config);
+        assertEquals("sbx-xyz", sandbox.getSandboxId());
+    }
+
+    // -------------------------------------------------------------------------
+    // Sandbox.list
+    // -------------------------------------------------------------------------
+
+    @Test
+    void list_returnsSandboxInfoList() {
+        server.enqueue(new MockResponse()
+                .setBody("""
+                        [{"sandbox_id":"sbx-1","template_id":"base","state":"running",
+                          "cpu_count":2,"memory_mb":512,"envd_version":"0.1.0",
+                          "started_at":"2024-01-01T00:00:00Z","end_at":"2024-01-01T00:05:00Z"},
+                         {"sandbox_id":"sbx-2","template_id":"python","state":"paused",
+                          "cpu_count":4,"memory_mb":1024,"envd_version":"0.1.0",
+                          "started_at":"2024-01-01T00:00:00Z","end_at":"2024-01-01T00:05:00Z"}]
+                        """)
+                .setHeader("Content-Type", "application/json"));
+
+        List<SandboxInfo> sandboxes = Sandbox.list(config);
+        assertEquals(2, sandboxes.size());
+        assertEquals("sbx-1",          sandboxes.get(0).getSandboxId());
+        assertEquals(SandboxState.PAUSED, sandboxes.get(1).getState());
+    }
+
+    // -------------------------------------------------------------------------
+    // Sandbox.kill
+    // -------------------------------------------------------------------------
+
+    @Test
+    void kill_byId_returnsTrue() {
+        server.enqueue(new MockResponse().setResponseCode(200));
+
+        boolean result = Sandbox.kill("sbx-abc", config);
+        assertTrue(result);
+    }
+
+    // -------------------------------------------------------------------------
+    // SandboxInfo deserialization
+    // -------------------------------------------------------------------------
+
+    @Test
+    void sandboxInfo_camelCaseFields() {
+        SandboxInfo info = new SandboxInfo();
+        info.setSandboxId("sbx-test");
+        info.setCpuCount(4);
+        info.setMemoryMb(2048);
+        info.setAllowInternetAccess(true);
+        info.setEnvdVersion("0.2.0");
+
+        assertEquals("sbx-test", info.getSandboxId());
+        assertEquals(4,          info.getCpuCount());
+        assertEquals(2048,       info.getMemoryMb());
+        assertTrue(              info.getAllowInternetAccess());
+    }
+
+    // -------------------------------------------------------------------------
+    // Model: CommandResult
+    // -------------------------------------------------------------------------
+
+    @Test
+    void commandResult_isSuccess() {
+        CommandResult success = CommandResult.builder().exitCode(0).stdout("ok").stderr("").build();
+        CommandResult failure = CommandResult.builder().exitCode(1).stdout("").stderr("err").build();
+
+        assertTrue(success.isSuccess());
+        assertFalse(failure.isSuccess());
+    }
+
+    // -------------------------------------------------------------------------
+    // ConnectionConfig
+    // -------------------------------------------------------------------------
+
+    @Test
+    void connectionConfig_resolvedApiUrl() {
+        ConnectionConfig cfg = ConnectionConfig.builder()
+                .apiKey("key")
+                .domain("e2b.app")
+                .build();
+
+        assertEquals("https://api.e2b.app", cfg.resolvedApiUrl());
+    }
+
+    @Test
+    void connectionConfig_getHost() {
+        ConnectionConfig cfg = ConnectionConfig.builder().apiKey("k").build();
+        assertEquals("3000-sbx-123.sandbox.e2b.app",
+                cfg.getHost("sbx-123", "sandbox.e2b.app", 3000));
+    }
+
+    // -------------------------------------------------------------------------
+    // NewSandbox builder
+    // -------------------------------------------------------------------------
+
+    @Test
+    void newSandbox_builder() {
+        NewSandbox ns = NewSandbox.builder()
+                .templateId("python")
+                .timeout(600)
+                .metadata(Map.of("project", "my-project"))
+                .envVars(Map.of("DEBUG", "true"))
+                .allowInternetAccess(false)
+                .build();
+
+        assertEquals("python",      ns.getTemplateId());
+        assertEquals(600,           ns.getTimeout());
+        assertEquals("my-project",  ns.getMetadata().get("project"));
+        assertEquals("true",        ns.getEnvVars().get("DEBUG"));
+        assertFalse(ns.getAllowInternetAccess());
+    }
+}

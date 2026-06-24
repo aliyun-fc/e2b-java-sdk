@@ -1,0 +1,341 @@
+package dev.e2b.sdk;
+
+import dev.e2b.sdk.client.ConnectionConfig;
+import dev.e2b.sdk.client.E2bApiClient;
+import dev.e2b.sdk.exception.SandboxException;
+import dev.e2b.sdk.model.*;
+import dev.e2b.sdk.sandbox.Commands;
+import dev.e2b.sdk.sandbox.Filesystem;
+import dev.e2b.sdk.sandbox.Git;
+import lombok.Getter;
+
+import java.time.Instant;
+import java.util.*;
+
+/**
+ * E2B Sandbox — the main entry point for the Java SDK.
+ *
+ * <h3>Usage</h3>
+ * <pre>{@code
+ * try (Sandbox sandbox = Sandbox.create(
+ *         ConnectionConfig.builder().apiKey("e2b_xxx").build())) {
+ *
+ *     CommandResult result = sandbox.commands().run("echo hello");
+ *     System.out.println(result.getStdout()); // "hello\n"
+ *
+ *     sandbox.files().write("/home/user/hello.txt", "Hello, world!");
+ *     String content = sandbox.files().read("/home/user/hello.txt");
+ * }
+ * }</pre>
+ */
+@Getter
+public class Sandbox implements AutoCloseable {
+
+    // -------------------------------------------------------------------------
+    // Constants
+    // -------------------------------------------------------------------------
+    public static final int    MCP_PORT                = 50005;
+    public static final int    DEFAULT_SANDBOX_TIMEOUT = 300;
+    public static final String DEFAULT_TEMPLATE        = "base";
+
+    // -------------------------------------------------------------------------
+    // State
+    // -------------------------------------------------------------------------
+    private final String           sandboxId;
+    private final String           sandboxDomain;
+    private final ConnectionConfig connectionConfig;
+    private final E2bApiClient     apiClient;
+
+    private final Commands   commands;
+    private final Filesystem files;
+    private final Git        git;
+
+    private final String trafficAccessToken;
+
+    // -------------------------------------------------------------------------
+    // Constructors (private — use static factory methods)
+    // -------------------------------------------------------------------------
+
+    private Sandbox(SandboxInfo info, ConnectionConfig config, E2bApiClient apiClient,
+                    String accessToken) {
+        this.sandboxId          = info.getSandboxId();
+        this.sandboxDomain      = info.getSandboxDomain();
+        this.connectionConfig   = config;
+        this.apiClient          = apiClient;
+        this.trafficAccessToken = accessToken;
+
+        String envdUrl = config.getSandboxUrl(sandboxId, sandboxDomain);
+        this.commands = new Commands(apiClient, sandboxId, envdUrl, accessToken);
+        this.files    = new Filesystem(apiClient, sandboxId, envdUrl, accessToken);
+        this.git      = new Git(commands, null);
+    }
+
+    // -------------------------------------------------------------------------
+    // Static factory: create
+    // -------------------------------------------------------------------------
+
+    /**
+     * Create a new sandbox from a template and return it.
+     *
+     * @param template Template ID or name (e.g. "base", "python")
+     * @param config   Connection configuration
+     * @param opts     Additional creation options (timeout, metadata, envs, …)
+     * @return Running Sandbox instance
+     */
+    public static Sandbox create(String template, ConnectionConfig config, NewSandbox opts) {
+        E2bApiClient api = new E2bApiClient(config);
+
+        NewSandbox body = opts != null ? opts : NewSandbox.builder().build();
+        if (template != null) body = copyWithTemplate(body, template);
+
+        SandboxInfo info = api.post("/sandboxes", body, SandboxInfo.class);
+        return new Sandbox(info, config, api, null);
+    }
+
+    public static Sandbox create(ConnectionConfig config) {
+        return create(DEFAULT_TEMPLATE, config, null);
+    }
+
+    public static Sandbox create(String template, ConnectionConfig config) {
+        return create(template, config, null);
+    }
+
+    public static Sandbox create(NewSandbox opts, ConnectionConfig config) {
+        return create(null, config, opts);
+    }
+
+    // -------------------------------------------------------------------------
+    // Static factory: connect to an existing sandbox
+    // -------------------------------------------------------------------------
+
+    /**
+     * Connect to an already-running sandbox.
+     *
+     * @param sandboxId Sandbox ID
+     * @param config    Connection configuration
+     * @return Sandbox instance connected to the existing sandbox
+     */
+    public static Sandbox connect(String sandboxId, ConnectionConfig config) {
+        E2bApiClient api = new E2bApiClient(config);
+        SandboxInfo info = api.get("/sandboxes/" + sandboxId, SandboxInfo.class);
+        return new Sandbox(info, config, api, null);
+    }
+
+    // -------------------------------------------------------------------------
+    // Instance lifecycle methods
+    // -------------------------------------------------------------------------
+
+    /**
+     * Kill (terminate) this sandbox immediately.
+     *
+     * @return true if the sandbox was killed successfully
+     */
+    public boolean kill() {
+        return apiClient.delete("/sandboxes/" + sandboxId);
+    }
+
+    /**
+     * Pause this sandbox (preserves state; can be resumed later).
+     *
+     * @return true if paused successfully
+     */
+    public boolean pause() {
+        apiClient.post("/sandboxes/" + sandboxId + "/pause", Void.class);
+        return true;
+    }
+
+    /**
+     * Set the sandbox timeout.
+     *
+     * @param timeoutSeconds New timeout in seconds
+     */
+    public void setTimeout(int timeoutSeconds) {
+        apiClient.post("/sandboxes/" + sandboxId + "/timeout",
+                Map.of("timeout", timeoutSeconds), Void.class);
+    }
+
+    /**
+     * Get the latest info for this sandbox.
+     */
+    public SandboxInfo getInfo() {
+        return apiClient.get("/sandboxes/" + sandboxId, SandboxInfo.class);
+    }
+
+    /**
+     * Get CPU / memory / disk metrics.
+     *
+     * @param start Optional start time
+     * @param end   Optional end time
+     */
+    public List<SandboxMetrics> getMetrics(Instant start, Instant end) {
+        Map<String, String> params = new HashMap<>();
+        if (start != null) params.put("start", String.valueOf(start.getEpochSecond()));
+        if (end   != null) params.put("end",   String.valueOf(end.getEpochSecond()));
+        SandboxMetrics[] arr = apiClient.get(
+                "/sandboxes/" + sandboxId + "/metrics", params, SandboxMetrics[].class);
+        return arr != null ? Arrays.asList(arr) : List.of();
+    }
+
+    public List<SandboxMetrics> getMetrics() {
+        return getMetrics(null, null);
+    }
+
+    /**
+     * Update network rules for this sandbox.
+     */
+    public void updateNetwork(SandboxNetworkUpdate network) {
+        apiClient.put("/sandboxes/" + sandboxId + "/network", network, Void.class);
+    }
+
+    /**
+     * Create a snapshot of this sandbox.
+     *
+     * @param name Optional snapshot name
+     * @return SnapshotInfo with the new snapshot ID
+     */
+    public SnapshotInfo createSnapshot(String name) {
+        Map<String, Object> body = new HashMap<>();
+        if (name != null) body.put("name", name);
+        return apiClient.post("/sandboxes/" + sandboxId + "/snapshots", body, SnapshotInfo.class);
+    }
+
+    /**
+     * Check whether the sandbox is currently running (live ping).
+     */
+    public boolean isRunning() {
+        try {
+            SandboxInfo info = getInfo();
+            return SandboxState.RUNNING.equals(info.getState());
+        } catch (SandboxException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Get the public hostname for a port exposed by this sandbox.
+     *
+     * @param port Port number
+     * @return Hostname string (e.g. "3000-abc123.sandbox.e2b.app")
+     */
+    public String getHost(int port) {
+        return connectionConfig.getHost(sandboxId, sandboxDomain, port);
+    }
+
+    /**
+     * Get the MCP server URL for this sandbox.
+     */
+    public String getMcpUrl() {
+        return "https://" + getHost(MCP_PORT);
+    }
+
+    /**
+     * Get a pre-signed download URL for a file inside the sandbox.
+     *
+     * @param path Path inside the sandbox
+     * @param user Optional username
+     * @return Download URL
+     */
+    public String downloadUrl(String path, String user) {
+        return files.downloadUrl(path, user);
+    }
+
+    public String downloadUrl(String path) {
+        return downloadUrl(path, null);
+    }
+
+    // -------------------------------------------------------------------------
+    // Static methods: list / snapshot management
+    // -------------------------------------------------------------------------
+
+    /**
+     * List all sandboxes visible to the API key.
+     *
+     * @param config    Connection configuration
+     * @param query     Optional filter (metadata / state)
+     * @param limit     Page size
+     * @param nextToken Pagination cursor from previous page
+     */
+    public static List<SandboxInfo> list(ConnectionConfig config,
+                                         SandboxQuery query,
+                                         Integer limit,
+                                         String nextToken) {
+        E2bApiClient api = new E2bApiClient(config);
+        Map<String, String> params = new HashMap<>();
+        if (limit     != null) params.put("limit", String.valueOf(limit));
+        if (nextToken != null) params.put("next_token", nextToken);
+        if (query     != null && query.getMetadata() != null) {
+            query.getMetadata().forEach((k, v) -> params.put("metadata[" + k + "]", v));
+        }
+        SandboxInfo[] arr = api.get("/v2/sandboxes", params, SandboxInfo[].class);
+        return arr != null ? Arrays.asList(arr) : List.of();
+    }
+
+    public static List<SandboxInfo> list(ConnectionConfig config) {
+        return list(config, null, null, null);
+    }
+
+    /**
+     * Kill a sandbox by ID without instantiating a Sandbox object.
+     */
+    public static boolean kill(String sandboxId, ConnectionConfig config) {
+        return new E2bApiClient(config).delete("/sandboxes/" + sandboxId);
+    }
+
+    /**
+     * Pause a sandbox by ID.
+     */
+    public static void pause(String sandboxId, ConnectionConfig config) {
+        new E2bApiClient(config).post("/sandboxes/" + sandboxId + "/pause", Void.class);
+    }
+
+    /**
+     * Set sandbox timeout by ID.
+     */
+    public static void setTimeout(String sandboxId, int timeoutSeconds, ConnectionConfig config) {
+        new E2bApiClient(config).post(
+                "/sandboxes/" + sandboxId + "/timeout",
+                Map.of("timeout", timeoutSeconds),
+                Void.class);
+    }
+
+    /**
+     * Delete a snapshot by ID.
+     */
+    public static boolean deleteSnapshot(String snapshotId, ConnectionConfig config) {
+        return new E2bApiClient(config).delete("/templates/" + snapshotId);
+    }
+
+    // -------------------------------------------------------------------------
+    // AutoCloseable
+    // -------------------------------------------------------------------------
+
+    /**
+     * Kills the sandbox when used in a try-with-resources block.
+     */
+    @Override
+    public void close() {
+        try {
+            kill();
+        } catch (Exception ignored) {
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
+
+    private static NewSandbox copyWithTemplate(NewSandbox src, String template) {
+        return NewSandbox.builder()
+                .templateId(template)
+                .timeout(src.getTimeout())
+                .metadata(src.getMetadata())
+                .envVars(src.getEnvVars())
+                .secure(src.getSecure())
+                .allowInternetAccess(src.getAllowInternetAccess())
+                .autoPause(src.getAutoPause())
+                .autoResume(src.getAutoResume())
+                .network(src.getNetwork())
+                .volumeMounts(src.getVolumeMounts())
+                .build();
+    }
+}
