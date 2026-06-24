@@ -110,7 +110,13 @@ public class Filesystem {
      */
     public WriteInfo write(String path, InputStream stream, String user) {
         try {
-            return writeBytes(path, stream.readAllBytes(), user, null);
+            java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int read;
+            while ((read = stream.read(buf)) != -1) {
+                buffer.write(buf, 0, read);
+            }
+            return writeBytes(path, buffer.toByteArray(), user, null);
         } catch (IOException e) {
             throw new SandboxException("Failed to read InputStream for file: " + path, e);
         }

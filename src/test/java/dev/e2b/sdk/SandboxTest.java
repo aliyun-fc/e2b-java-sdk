@@ -8,6 +8,8 @@ import okhttp3.mockwebserver.MockWebServer;
 import org.junit.jupiter.api.*;
 
 import java.io.IOException;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -44,12 +46,10 @@ class SandboxTest {
     @Test
     void create_returnsRunningsandbox() {
         server.enqueue(new MockResponse()
-                .setBody("""
-                        {"sandbox_id":"sbx-abc","sandbox_domain":"sandbox.e2b.app",
-                         "template_id":"base","state":"running","cpu_count":2,
-                         "memory_mb":512,"envd_version":"0.1.0",
-                         "started_at":"2024-01-01T00:00:00Z","end_at":"2024-01-01T00:05:00Z"}
-                        """)
+                .setBody("{\"sandbox_id\":\"sbx-abc\",\"sandbox_domain\":\"sandbox.e2b.app\","
+                        + "\"template_id\":\"base\",\"state\":\"running\",\"cpu_count\":2,"
+                        + "\"memory_mb\":512,\"envd_version\":\"0.1.0\","
+                        + "\"started_at\":\"2024-01-01T00:00:00Z\",\"end_at\":\"2024-01-01T00:05:00Z\"}")
                 .setHeader("Content-Type", "application/json"));
 
         Sandbox sandbox = Sandbox.create("base", config);
@@ -77,12 +77,10 @@ class SandboxTest {
     @Test
     void connect_existingSandbox() {
         server.enqueue(new MockResponse()
-                .setBody("""
-                        {"sandbox_id":"sbx-xyz","sandbox_domain":"sandbox.e2b.app",
-                         "template_id":"python","state":"running","cpu_count":2,
-                         "memory_mb":1024,"envd_version":"0.1.0",
-                         "started_at":"2024-01-01T00:00:00Z","end_at":"2024-01-01T00:05:00Z"}
-                        """)
+                .setBody("{\"sandbox_id\":\"sbx-xyz\",\"sandbox_domain\":\"sandbox.e2b.app\","
+                        + "\"template_id\":\"python\",\"state\":\"running\",\"cpu_count\":2,"
+                        + "\"memory_mb\":1024,\"envd_version\":\"0.1.0\","
+                        + "\"started_at\":\"2024-01-01T00:00:00Z\",\"end_at\":\"2024-01-01T00:05:00Z\"}")
                 .setHeader("Content-Type", "application/json"));
 
         Sandbox sandbox = Sandbox.connect("sbx-xyz", config);
@@ -96,19 +94,17 @@ class SandboxTest {
     @Test
     void list_returnsSandboxInfoList() {
         server.enqueue(new MockResponse()
-                .setBody("""
-                        [{"sandbox_id":"sbx-1","template_id":"base","state":"running",
-                          "cpu_count":2,"memory_mb":512,"envd_version":"0.1.0",
-                          "started_at":"2024-01-01T00:00:00Z","end_at":"2024-01-01T00:05:00Z"},
-                         {"sandbox_id":"sbx-2","template_id":"python","state":"paused",
-                          "cpu_count":4,"memory_mb":1024,"envd_version":"0.1.0",
-                          "started_at":"2024-01-01T00:00:00Z","end_at":"2024-01-01T00:05:00Z"}]
-                        """)
+                .setBody("[{\"sandbox_id\":\"sbx-1\",\"template_id\":\"base\",\"state\":\"running\","
+                        + "\"cpu_count\":2,\"memory_mb\":512,\"envd_version\":\"0.1.0\","
+                        + "\"started_at\":\"2024-01-01T00:00:00Z\",\"end_at\":\"2024-01-01T00:05:00Z\"},"
+                        + "{\"sandbox_id\":\"sbx-2\",\"template_id\":\"python\",\"state\":\"paused\","
+                        + "\"cpu_count\":4,\"memory_mb\":1024,\"envd_version\":\"0.1.0\","
+                        + "\"started_at\":\"2024-01-01T00:00:00Z\",\"end_at\":\"2024-01-01T00:05:00Z\"}]")
                 .setHeader("Content-Type", "application/json"));
 
         List<SandboxInfo> sandboxes = Sandbox.list(config);
         assertEquals(2, sandboxes.size());
-        assertEquals("sbx-1",          sandboxes.get(0).getSandboxId());
+        assertEquals("sbx-1",            sandboxes.get(0).getSandboxId());
         assertEquals(SandboxState.PAUSED, sandboxes.get(1).getState());
     }
 
@@ -183,16 +179,21 @@ class SandboxTest {
 
     @Test
     void newSandbox_builder() {
+        Map<String, String> metadata = new HashMap<String, String>();
+        metadata.put("project", "my-project");
+        Map<String, String> envVars = new HashMap<String, String>();
+        envVars.put("DEBUG", "true");
+
         NewSandbox ns = NewSandbox.builder()
                 .templateId("python")
                 .timeout(600)
-                .metadata(Map.of("project", "my-project"))
-                .envVars(Map.of("DEBUG", "true"))
+                .metadata(metadata)
+                .envVars(envVars)
                 .allowInternetAccess(false)
                 .build();
 
         assertEquals("python",      ns.getTemplateId());
-        assertEquals(600,           ns.getTimeout());
+        assertEquals(600,           (int) ns.getTimeout());
         assertEquals("my-project",  ns.getMetadata().get("project"));
         assertEquals("true",        ns.getEnvVars().get("DEBUG"));
         assertFalse(ns.getAllowInternetAccess());

@@ -237,7 +237,10 @@ public class Git {
 
     private Map<String, String> credentialEnvs(String username, String password) {
         if (username == null || password == null) return null;
-        return Map.of("GIT_USERNAME", username, "GIT_PASSWORD", password);
+        Map<String, String> envs = new java.util.HashMap<String, String>();
+        envs.put("GIT_USERNAME", username);
+        envs.put("GIT_PASSWORD", password);
+        return envs;
     }
 
     private static String q(String s) {
