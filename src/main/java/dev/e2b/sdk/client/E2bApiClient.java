@@ -28,7 +28,7 @@ public class E2bApiClient {
 
     private final ConnectionConfig config;
     private final OkHttpClient http;
-    final ObjectMapper mapper;
+    public final ObjectMapper mapper;
 
     public E2bApiClient(ConnectionConfig config) {
         this.config = config;
@@ -183,11 +183,11 @@ public class E2bApiClient {
         }
     }
 
-    OkHttpClient httpClient() {
+    public OkHttpClient httpClient() {
         return http;
     }
 
-    ConnectionConfig getConfig() {
+    public ConnectionConfig getConfig() {
         return config;
     }
 }
