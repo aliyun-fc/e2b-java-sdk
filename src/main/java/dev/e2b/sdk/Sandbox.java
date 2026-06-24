@@ -151,7 +151,7 @@ public class Sandbox implements AutoCloseable {
      */
     public void setTimeout(int timeoutSeconds) {
         apiClient.post("/sandboxes/" + sandboxId + "/timeout",
-                Map.of("timeout", timeoutSeconds), Void.class);
+                Collections.singletonMap("timeout", timeoutSeconds), Void.class);
     }
 
     /**
@@ -173,7 +173,7 @@ public class Sandbox implements AutoCloseable {
         if (end   != null) params.put("end",   String.valueOf(end.getEpochSecond()));
         SandboxMetrics[] arr = apiClient.get(
                 "/sandboxes/" + sandboxId + "/metrics", params, SandboxMetrics[].class);
-        return arr != null ? Arrays.asList(arr) : List.of();
+        return arr != null ? Arrays.asList(arr) : Collections.emptyList();
     }
 
     public List<SandboxMetrics> getMetrics() {
@@ -267,7 +267,7 @@ public class Sandbox implements AutoCloseable {
             query.getMetadata().forEach((k, v) -> params.put("metadata[" + k + "]", v));
         }
         SandboxInfo[] arr = api.get("/v2/sandboxes", params, SandboxInfo[].class);
-        return arr != null ? Arrays.asList(arr) : List.of();
+        return arr != null ? Arrays.asList(arr) : Collections.emptyList();
     }
 
     public static List<SandboxInfo> list(ConnectionConfig config) {
@@ -294,7 +294,7 @@ public class Sandbox implements AutoCloseable {
     public static void setTimeout(String sandboxId, int timeoutSeconds, ConnectionConfig config) {
         new E2bApiClient(config).post(
                 "/sandboxes/" + sandboxId + "/timeout",
-                Map.of("timeout", timeoutSeconds),
+                Collections.singletonMap("timeout", timeoutSeconds),
                 Void.class);
     }
 
