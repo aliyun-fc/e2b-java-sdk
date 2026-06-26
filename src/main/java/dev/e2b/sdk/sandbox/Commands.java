@@ -16,18 +16,17 @@ import java.util.Map;
 
 /**
  * Commands module: run shell commands inside the sandbox.
- * Communicates with the sandbox envd HTTP API.
+ * Communicates with the sandbox envd via Connect-RPC protocol.
  */
 @RequiredArgsConstructor
 public class Commands {
 
     private static final Logger log = LoggerFactory.getLogger(Commands.class);
-    private static final MediaType OCTET = MediaType.get("application/octet-stream");
-    private static final MediaType JSON  = MediaType.get("application/json");
+    private static final MediaType CONNECT_JSON = MediaType.get("application/json");
 
     private final E2bApiClient api;
     private final String sandboxId;
-    private final String envdUrl;   // https://{port}-{sandboxId}.{domain}
+    private final String envdUrl;
     private final String accessToken;
 
     /**
@@ -43,7 +42,6 @@ public class Commands {
      */
     public CommandResult run(String cmd, Map<String, String> envs, String user,
                              String cwd, Integer timeoutSeconds, boolean throwOnError) {
-        // Build JSON body
         StringBuilder json = new StringBuilder("{");
         json.append("\"cmd\":").append(quote(cmd));
         if (user != null)  json.append(",\"user\":").append(quote(user));
@@ -56,11 +54,7 @@ public class Commands {
         }
         json.append("}");
 
-        Request req = new Request.Builder()
-                .url(envdUrl + "/api/process/start")
-                .post(RequestBody.create(json.toString(), JSON))
-                .header("X-Access-Token", accessToken != null ? accessToken : "")
-                .build();
+        Request req = buildConnectRequest("/process.Process/Start", json.toString());
 
         OkHttpClient client = api.httpClient().newBuilder()
                 .readTimeout(timeoutSeconds != null ? timeoutSeconds : 60, java.util.concurrent.TimeUnit.SECONDS)
@@ -92,11 +86,7 @@ public class Commands {
      * List all running processes inside the sandbox.
      */
     public List<ProcessInfo> list() {
-        Request req = new Request.Builder()
-                .url(envdUrl + "/api/process/list")
-                .get()
-                .header("X-Access-Token", accessToken != null ? accessToken : "")
-                .build();
+        Request req = buildConnectRequest("/process.Process/List", "{}");
         try (Response resp = api.httpClient().newCall(req).execute()) {
             String body = resp.body() != null ? resp.body().string() : "[]";
             ProcessInfo[] arr = api.mapper.readValue(body, ProcessInfo[].class);
@@ -113,11 +103,8 @@ public class Commands {
      * @param data Data to send
      */
     public void sendStdin(int pid, String data) {
-        Request req = new Request.Builder()
-                .url(envdUrl + "/api/process/" + pid + "/stdin")
-                .post(RequestBody.create(data.getBytes(), OCTET))
-                .header("X-Access-Token", accessToken != null ? accessToken : "")
-                .build();
+        String json = "{\"pid\":" + pid + ",\"data\":" + quote(data) + "}";
+        Request req = buildConnectRequest("/process.Process/SendInput", json);
         try (Response resp = api.httpClient().newCall(req).execute()) {
             if (!resp.isSuccessful()) {
                 throw new dev.e2b.sdk.exception.SandboxException("sendStdin failed: " + resp.code());
@@ -131,16 +118,23 @@ public class Commands {
      * Kill a running process by PID.
      */
     public boolean kill(int pid) {
-        Request req = new Request.Builder()
-                .url(envdUrl + "/api/process/" + pid + "/kill")
-                .post(RequestBody.create(new byte[0]))
-                .header("X-Access-Token", accessToken != null ? accessToken : "")
-                .build();
+        String json = "{\"pid\":" + pid + ",\"signal\":9}";
+        Request req = buildConnectRequest("/process.Process/SendSignal", json);
         try (Response resp = api.httpClient().newCall(req).execute()) {
             return resp.isSuccessful();
         } catch (IOException e) {
             throw new dev.e2b.sdk.exception.SandboxException("kill failed", e);
         }
+    }
+
+    private Request buildConnectRequest(String rpcPath, String jsonBody) {
+        return new Request.Builder()
+                .url(envdUrl + rpcPath)
+                .post(RequestBody.create(jsonBody, CONNECT_JSON))
+                .header("Content-Type", "application/json")
+                .header("Connect-Protocol-Version", "1")
+                .header("X-Access-Token", accessToken != null ? accessToken : "")
+                .build();
     }
 
     private static String quote(String s) {

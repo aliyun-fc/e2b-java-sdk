@@ -70,4 +70,8 @@ public class SandboxInfo {
     /** Attached volume mounts. */
     @JsonProperty("volume_mounts")
     private List<Map<String, String>> volumeMounts;
+
+    /** Access token for envd API calls inside the sandbox. */
+    @JsonProperty("envd_access_token")
+    private String envdAccessToken;
 }
