@@ -50,7 +50,7 @@ public class Sandbox implements AutoCloseable {
     private final Filesystem files;
     private final Git        git;
 
-    private final String trafficAccessToken;
+    private final String envdAccessToken;
 
     // -------------------------------------------------------------------------
     // Constructors (private — use static factory methods)
@@ -62,7 +62,7 @@ public class Sandbox implements AutoCloseable {
         this.sandboxDomain      = info.getSandboxDomain();
         this.connectionConfig   = config;
         this.apiClient          = apiClient;
-        this.trafficAccessToken = accessToken;
+        this.envdAccessToken    = accessToken;
 
         String envdUrl = config.getSandboxUrl(sandboxId, sandboxDomain);
         this.commands = new Commands(apiClient, sandboxId, envdUrl, accessToken);
@@ -89,7 +89,7 @@ public class Sandbox implements AutoCloseable {
         if (template != null) body = copyWithTemplate(body, template);
 
         SandboxInfo info = api.post("/sandboxes", body, SandboxInfo.class);
-        return new Sandbox(info, config, api, null);
+        return new Sandbox(info, config, api, info.getEnvdAccessToken());
     }
 
     public static Sandbox create(ConnectionConfig config) {
@@ -118,7 +118,7 @@ public class Sandbox implements AutoCloseable {
     public static Sandbox connect(String sandboxId, ConnectionConfig config) {
         E2bApiClient api = new E2bApiClient(config);
         SandboxInfo info = api.get("/sandboxes/" + sandboxId, SandboxInfo.class);
-        return new Sandbox(info, config, api, null);
+        return new Sandbox(info, config, api, info.getEnvdAccessToken());
     }
 
     // -------------------------------------------------------------------------

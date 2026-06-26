@@ -17,6 +17,8 @@ import java.util.Map;
 
 /**
  * Filesystem module: read, write, list, move, watch files inside the sandbox.
+ * File read/write uses REST endpoints (/api/files);
+ * directory operations use Connect-RPC protocol.
  */
 @RequiredArgsConstructor
 public class Filesystem {
@@ -31,10 +33,6 @@ public class Filesystem {
 
     /**
      * Read a file as a UTF-8 string.
-     *
-     * @param path Path inside the sandbox
-     * @param user Optional username (default: "user")
-     * @return File contents
      */
     public String read(String path, String user) {
         byte[] raw = readBytes(path, user);
@@ -46,7 +44,7 @@ public class Filesystem {
     }
 
     /**
-     * Read a file as raw bytes.
+     * Read a file as raw bytes (uses REST endpoint /api/files).
      */
     public byte[] readBytes(String path, String user) {
         HttpUrl url = buildFileUrl(path, user);
@@ -64,13 +62,7 @@ public class Filesystem {
     }
 
     /**
-     * Write a string to a file (creates parent directories automatically).
-     *
-     * @param path     Path inside the sandbox
-     * @param content  File content
-     * @param user     Optional username
-     * @param metadata Optional metadata headers
-     * @return WriteInfo for the created/updated file
+     * Write a string to a file (uses REST endpoint /api/files).
      */
     public WriteInfo write(String path, String content, String user, Map<String, String> metadata) {
         return writeBytes(path, content.getBytes(StandardCharsets.UTF_8), user, metadata);
@@ -81,7 +73,7 @@ public class Filesystem {
     }
 
     /**
-     * Write raw bytes to a file.
+     * Write raw bytes to a file (uses REST endpoint /api/files).
      */
     public WriteInfo writeBytes(String path, byte[] data, String user, Map<String, String> metadata) {
         HttpUrl url = buildFileUrl(path, user);
@@ -123,24 +115,15 @@ public class Filesystem {
     }
 
     /**
-     * List directory contents.
-     *
-     * @param path  Directory path
-     * @param depth Recursion depth (default: 1)
-     * @param user  Optional username
-     * @return List of EntryInfo
+     * List directory contents (Connect-RPC: /filesystem.Filesystem/ListDir).
      */
     public List<EntryInfo> list(String path, Integer depth, String user) {
-        HttpUrl.Builder urlBuilder = HttpUrl.parse(envdUrl + "/api/filesystem/list").newBuilder()
-                .addQueryParameter("path", path);
-        if (depth != null)  urlBuilder.addQueryParameter("depth", String.valueOf(depth));
-        if (user  != null)  urlBuilder.addQueryParameter("username", user);
+        StringBuilder json = new StringBuilder("{\"path\":").append(q(path));
+        if (depth != null) json.append(",\"depth\":").append(depth);
+        if (user  != null) json.append(",\"user\":").append(q(user));
+        json.append("}");
 
-        Request req = new Request.Builder()
-                .url(urlBuilder.build())
-                .get()
-                .header("X-Access-Token", tok())
-                .build();
+        Request req = buildConnectRequest("/filesystem.Filesystem/ListDir", json.toString());
         try (Response resp = api.httpClient().newCall(req).execute()) {
             handleError(resp, "list");
             String body = resp.body() != null ? resp.body().string() : "[]";
@@ -172,18 +155,14 @@ public class Filesystem {
     }
 
     /**
-     * Get metadata (stat) for a file or directory.
+     * Get metadata (stat) for a file or directory (Connect-RPC: /filesystem.Filesystem/Stat).
      */
     public EntryInfo getInfo(String path, String user) {
-        HttpUrl.Builder urlBuilder = HttpUrl.parse(envdUrl + "/api/filesystem/stat").newBuilder()
-                .addQueryParameter("path", path);
-        if (user != null) urlBuilder.addQueryParameter("username", user);
+        StringBuilder json = new StringBuilder("{\"path\":").append(q(path));
+        if (user != null) json.append(",\"user\":").append(q(user));
+        json.append("}");
 
-        Request req = new Request.Builder()
-                .url(urlBuilder.build())
-                .get()
-                .header("X-Access-Token", tok())
-                .build();
+        Request req = buildConnectRequest("/filesystem.Filesystem/Stat", json.toString());
         try (Response resp = api.httpClient().newCall(req).execute()) {
             handleError(resp, "getInfo");
             String body = resp.body() != null ? resp.body().string() : "{}";
@@ -198,18 +177,14 @@ public class Filesystem {
     }
 
     /**
-     * Remove a file or directory.
+     * Remove a file or directory (Connect-RPC: /filesystem.Filesystem/Remove).
      */
     public void remove(String path, String user) {
-        HttpUrl.Builder urlBuilder = HttpUrl.parse(envdUrl + "/api/filesystem/remove").newBuilder()
-                .addQueryParameter("path", path);
-        if (user != null) urlBuilder.addQueryParameter("username", user);
+        StringBuilder json = new StringBuilder("{\"path\":").append(q(path));
+        if (user != null) json.append(",\"user\":").append(q(user));
+        json.append("}");
 
-        Request req = new Request.Builder()
-                .url(urlBuilder.build())
-                .delete()
-                .header("X-Access-Token", tok())
-                .build();
+        Request req = buildConnectRequest("/filesystem.Filesystem/Remove", json.toString());
         try (Response resp = api.httpClient().newCall(req).execute()) {
             handleError(resp, "remove");
         } catch (IOException e) {
@@ -222,21 +197,15 @@ public class Filesystem {
     }
 
     /**
-     * Rename / move a path.
-     *
-     * @param oldPath Source path
-     * @param newPath Destination path
-     * @param user    Optional username
-     * @return EntryInfo of the moved path
+     * Rename / move a path (Connect-RPC: /filesystem.Filesystem/Move).
      */
     public EntryInfo rename(String oldPath, String newPath, String user) {
-        String json = "{\"old_path\":" + q(oldPath) + ",\"new_path\":" + q(newPath) +
-                (user != null ? ",\"username\":" + q(user) : "") + "}";
-        Request req = new Request.Builder()
-                .url(envdUrl + "/api/filesystem/move")
-                .post(RequestBody.create(json, JSON))
-                .header("X-Access-Token", tok())
-                .build();
+        StringBuilder json = new StringBuilder("{\"source\":").append(q(oldPath))
+                .append(",\"destination\":").append(q(newPath));
+        if (user != null) json.append(",\"user\":").append(q(user));
+        json.append("}");
+
+        Request req = buildConnectRequest("/filesystem.Filesystem/Move", json.toString());
         try (Response resp = api.httpClient().newCall(req).execute()) {
             handleError(resp, "rename");
             String body = resp.body() != null ? resp.body().string() : "{}";
@@ -251,21 +220,17 @@ public class Filesystem {
     }
 
     /**
-     * Create a directory (and parents).
-     *
-     * @return true if created, false if already existed
+     * Create a directory (Connect-RPC: /filesystem.Filesystem/MakeDir).
      */
     public boolean makeDir(String path, String user) {
-        String json = "{\"path\":" + q(path) +
-                (user != null ? ",\"username\":" + q(user) : "") + "}";
-        Request req = new Request.Builder()
-                .url(envdUrl + "/api/filesystem/mkdir")
-                .post(RequestBody.create(json, JSON))
-                .header("X-Access-Token", tok())
-                .build();
+        StringBuilder json = new StringBuilder("{\"path\":").append(q(path));
+        if (user != null) json.append(",\"user\":").append(q(user));
+        json.append("}");
+
+        Request req = buildConnectRequest("/filesystem.Filesystem/MakeDir", json.toString());
         try (Response resp = api.httpClient().newCall(req).execute()) {
             handleError(resp, "makeDir");
-            return resp.code() == 201;
+            return resp.isSuccessful();
         } catch (IOException e) {
             throw new SandboxException("Failed to makeDir: " + path, e);
         }
@@ -277,10 +242,6 @@ public class Filesystem {
 
     /**
      * Get a pre-signed download URL for a file.
-     *
-     * @param path Path inside sandbox
-     * @param user Optional username
-     * @return Download URL
      */
     public String downloadUrl(String path, String user) {
         HttpUrl url = buildFileUrl(path, user);
@@ -296,6 +257,16 @@ public class Filesystem {
                 .addQueryParameter("path", path);
         if (user != null) b.addQueryParameter("username", user);
         return b.build();
+    }
+
+    private Request buildConnectRequest(String rpcPath, String jsonBody) {
+        return new Request.Builder()
+                .url(envdUrl + rpcPath)
+                .post(RequestBody.create(jsonBody, JSON))
+                .header("Content-Type", "application/json")
+                .header("Connect-Protocol-Version", "1")
+                .header("X-Access-Token", tok())
+                .build();
     }
 
     private String tok() {
