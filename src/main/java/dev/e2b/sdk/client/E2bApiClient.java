@@ -3,7 +3,6 @@ package dev.e2b.sdk.client;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import dev.e2b.sdk.exception.AuthenticationException;
 import dev.e2b.sdk.exception.RateLimitException;
@@ -46,8 +45,11 @@ public class E2bApiClient {
     }
 
     private ObjectMapper buildObjectMapper() {
+        // The sandbox-gateway control plane and envd protojson both use camelCase
+        // (e.g. templateID, sandboxID, memoryMB, envVars, exitCode). We therefore keep
+        // Jackson's default (lower camelCase) naming and rely on explicit @JsonProperty
+        // on model fields whose wire name differs (Go-style acronyms like templateID).
         return new ObjectMapper()
-                .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
                 .setSerializationInclusion(JsonInclude.Include.NON_NULL)
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
                 .registerModule(new JavaTimeModule());
@@ -98,6 +100,13 @@ public class E2bApiClient {
         String json = serialize(body);
         RequestBody reqBody = RequestBody.create(json, JSON_MEDIA);
         Request req = baseRequest(path).put(reqBody).build();
+        return execute(req, responseType);
+    }
+
+    public <T> T patch(String path, Object body, Class<T> responseType) {
+        String json = serialize(body);
+        RequestBody reqBody = RequestBody.create(json, JSON_MEDIA);
+        Request req = baseRequest(path).patch(reqBody).build();
         return execute(req, responseType);
     }
 

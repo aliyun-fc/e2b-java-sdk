@@ -4,19 +4,26 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Builder;
 import lombok.Data;
 
+import java.util.List;
 import java.util.Map;
 
 /**
  * Parameters for creating a new sandbox.
- * All fields are optional unless noted; snake_case names map to API JSON fields.
+ *
+ * <p>Field JSON names match the sandbox-gateway create request
+ * ({@code e2bCreateSandboxRequest}): camelCase with Go-style acronyms.
  */
 @Data
 @Builder
 public class NewSandbox {
 
-    /** Template ID or name (e.g. "base", "python", your custom template ID). */
-    @JsonProperty("template_id")
+    /** Template ID (opaque internal template ID). */
+    @JsonProperty("templateID")
     private String templateId;
+
+    /** Template name / alias (e.g. "base", "python"). */
+    @JsonProperty("templateName")
+    private String templateName;
 
     /** Sandbox timeout in seconds. Default: 300. */
     private Integer timeout;
@@ -25,28 +32,31 @@ public class NewSandbox {
     private Map<String, String> metadata;
 
     /** Environment variables injected into the sandbox. */
-    @JsonProperty("env_vars")
+    @JsonProperty("envVars")
     private Map<String, String> envVars;
 
     /** Whether to run the sandbox in secure mode. Default: true. */
     private Boolean secure;
 
     /** Whether the sandbox may reach the public internet. Default: true. */
-    @JsonProperty("allow_internet_access")
+    @JsonProperty("allowInternetAccess")
     private Boolean allowInternetAccess;
 
     /** Auto-pause the sandbox on timeout instead of killing it. */
-    @JsonProperty("auto_pause")
+    @JsonProperty("autoPause")
     private Boolean autoPause;
 
     /** Auto-resume a paused sandbox when accessed. */
-    @JsonProperty("auto_resume")
-    private Boolean autoResume;
+    @JsonProperty("autoResume")
+    private SandboxAutoResumeConfig autoResume;
 
     /** Network isolation / egress rules. */
     private SandboxNetworkOpts network;
 
-    /** Volume mounts: {mountPath -> volumeId}. */
-    @JsonProperty("volume_mounts")
-    private Map<String, String> volumeMounts;
+    /** MCP server configuration. */
+    private Map<String, Object> mcp;
+
+    /** Volume mounts attached to the sandbox. */
+    @JsonProperty("volumeMounts")
+    private List<SandboxVolumeMount> volumeMounts;
 }
