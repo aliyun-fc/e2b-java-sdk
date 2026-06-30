@@ -7,9 +7,9 @@ import java.util.Map;
 @Data
 @NoArgsConstructor
 public class SandboxNetworkInfo {
-    @JsonProperty("allow_out") private List<String> allowOut;
-    @JsonProperty("deny_out") private List<String> denyOut;
+    @JsonProperty("allowOut") private List<String> allowOut;
+    @JsonProperty("denyOut") private List<String> denyOut;
     private Map<String, List<Object>> rules;
-    @JsonProperty("allow_public_traffic") private Boolean allowPublicTraffic;
-    @JsonProperty("mask_request_host") private String maskRequestHost;
+    @JsonProperty("allowPublicTraffic") private Boolean allowPublicTraffic;
+    @JsonProperty("maskRequestHost") private String maskRequestHost;
 }

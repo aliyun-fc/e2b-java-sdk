@@ -11,7 +11,7 @@ import lombok.NoArgsConstructor;
 public class CommandResult {
     private String stdout;
     private String stderr;
-    @JsonProperty("exit_code") private int exitCode;
+    @JsonProperty("exitCode") private int exitCode;
     private String error;
     public boolean isSuccess() { return exitCode == 0; }
 }

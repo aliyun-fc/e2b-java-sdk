@@ -7,8 +7,8 @@ import java.util.Map;
 @Data
 @Builder
 public class SandboxNetworkUpdate {
-    @JsonProperty("allow_out") private List<String> allowOut;
-    @JsonProperty("deny_out") private List<String> denyOut;
+    @JsonProperty("allowOut") private List<String> allowOut;
+    @JsonProperty("denyOut") private List<String> denyOut;
     private Map<String, Object> rules;
-    @JsonProperty("allow_internet_access") private Boolean allowInternetAccess;
+    @JsonProperty("allowInternetAccess") private Boolean allowInternetAccess;
 }

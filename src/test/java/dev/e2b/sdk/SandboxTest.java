@@ -46,10 +46,9 @@ class SandboxTest {
     @Test
     void create_returnsRunningsandbox() {
         server.enqueue(new MockResponse()
-                .setBody("{\"sandbox_id\":\"sbx-abc\",\"sandbox_domain\":\"sandbox.e2b.app\","
-                        + "\"template_id\":\"base\",\"state\":\"running\",\"cpu_count\":2,"
-                        + "\"memory_mb\":512,\"envd_version\":\"0.1.0\","
-                        + "\"started_at\":\"2024-01-01T00:00:00Z\",\"end_at\":\"2024-01-01T00:05:00Z\"}")
+                .setBody("{\"sandboxID\":\"sbx-abc\",\"domain\":\"sandbox.e2b.app\","
+                        + "\"templateID\":\"base\",\"clientID\":\"c-1\",\"envdVersion\":\"0.1.0\","
+                        + "\"envdAccessToken\":\"tok-abc\"}")
                 .setHeader("Content-Type", "application/json"));
 
         Sandbox sandbox = Sandbox.create("base", config);
@@ -63,8 +62,12 @@ class SandboxTest {
 
     @Test
     void create_missingApiKey_throwsAuthenticationException() {
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+                System.getenv("E2B_API_KEY") == null || System.getenv("E2B_API_KEY").isEmpty(),
+                "Skip when E2B_API_KEY is set in the environment");
+
         ConnectionConfig badConfig = ConnectionConfig.builder()
-                .apiUrl(server.url("/").toString())
+                .apiUrl(server.url("/").toString().replaceAll("/$", ""))
                 .build();
 
         assertThrows(AuthenticationException.class, () -> Sandbox.create("base", badConfig));
@@ -77,10 +80,9 @@ class SandboxTest {
     @Test
     void connect_existingSandbox() {
         server.enqueue(new MockResponse()
-                .setBody("{\"sandbox_id\":\"sbx-xyz\",\"sandbox_domain\":\"sandbox.e2b.app\","
-                        + "\"template_id\":\"python\",\"state\":\"running\",\"cpu_count\":2,"
-                        + "\"memory_mb\":1024,\"envd_version\":\"0.1.0\","
-                        + "\"started_at\":\"2024-01-01T00:00:00Z\",\"end_at\":\"2024-01-01T00:05:00Z\"}")
+                .setBody("{\"sandboxID\":\"sbx-xyz\",\"domain\":\"sandbox.e2b.app\","
+                        + "\"templateID\":\"python\",\"envdVersion\":\"0.1.0\","
+                        + "\"envdAccessToken\":\"tok-xyz\"}")
                 .setHeader("Content-Type", "application/json"));
 
         Sandbox sandbox = Sandbox.connect("sbx-xyz", config);
@@ -94,18 +96,42 @@ class SandboxTest {
     @Test
     void list_returnsSandboxInfoList() {
         server.enqueue(new MockResponse()
-                .setBody("[{\"sandbox_id\":\"sbx-1\",\"template_id\":\"base\",\"state\":\"running\","
-                        + "\"cpu_count\":2,\"memory_mb\":512,\"envd_version\":\"0.1.0\","
-                        + "\"started_at\":\"2024-01-01T00:00:00Z\",\"end_at\":\"2024-01-01T00:05:00Z\"},"
-                        + "{\"sandbox_id\":\"sbx-2\",\"template_id\":\"python\",\"state\":\"paused\","
-                        + "\"cpu_count\":4,\"memory_mb\":1024,\"envd_version\":\"0.1.0\","
-                        + "\"started_at\":\"2024-01-01T00:00:00Z\",\"end_at\":\"2024-01-01T00:05:00Z\"}]")
+                .setBody("[{\"sandboxID\":\"sbx-1\",\"templateID\":\"base\",\"state\":\"running\","
+                        + "\"cpuCount\":2,\"memoryMB\":512,\"envdVersion\":\"0.1.0\",\"clientID\":\"c-1\","
+                        + "\"startedAt\":\"2024-01-01T00:00:00Z\",\"endAt\":\"2024-01-01T00:05:00Z\"},"
+                        + "{\"sandboxID\":\"sbx-2\",\"templateID\":\"python\",\"state\":\"paused\","
+                        + "\"cpuCount\":4,\"memoryMB\":1024,\"envdVersion\":\"0.1.0\",\"clientID\":\"c-2\","
+                        + "\"startedAt\":\"2024-01-01T00:00:00Z\",\"endAt\":\"2024-01-01T00:05:00Z\"}]")
                 .setHeader("Content-Type", "application/json"));
 
         List<SandboxInfo> sandboxes = Sandbox.list(config);
         assertEquals(2, sandboxes.size());
         assertEquals("sbx-1",            sandboxes.get(0).getSandboxId());
         assertEquals(SandboxState.PAUSED, sandboxes.get(1).getState());
+    }
+
+    // -------------------------------------------------------------------------
+    // Sandbox.listSnapshots
+    // -------------------------------------------------------------------------
+
+    @Test
+    void listSnapshots_parsesAndSendsFilter() throws InterruptedException {
+        server.enqueue(new MockResponse()
+                .setBody("[{\"snapshotID\":\"snap-1\",\"sandboxID\":\"sbx-1\",\"names\":[\"a\",\"b\"]}]")
+                .setHeader("Content-Type", "application/json"));
+
+        List<SnapshotInfo> snapshots = Sandbox.listSnapshots(config, "sbx-1", 50, null);
+
+        assertEquals(1, snapshots.size());
+        assertEquals("snap-1", snapshots.get(0).getSnapshotId());
+        assertEquals("sbx-1", snapshots.get(0).getSandboxId());
+        assertEquals(java.util.Arrays.asList("a", "b"), snapshots.get(0).getNames());
+
+        okhttp3.mockwebserver.RecordedRequest request = server.takeRequest();
+        assertEquals("GET", request.getMethod());
+        assertTrue(request.getPath().startsWith("/snapshots"), request.getPath());
+        assertTrue(request.getPath().contains("sandboxID=sbx-1"), request.getPath());
+        assertTrue(request.getPath().contains("limit=50"), request.getPath());
     }
 
     // -------------------------------------------------------------------------

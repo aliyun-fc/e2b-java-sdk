@@ -59,7 +59,12 @@ public class Sandbox implements AutoCloseable {
     private Sandbox(SandboxInfo info, ConnectionConfig config, E2bApiClient apiClient,
                     String accessToken) {
         this.sandboxId          = info.getSandboxId();
-        this.sandboxDomain      = info.getSandboxDomain();
+        // The create/connect responses carry `domain` only when the gateway overrides it
+        // (it is nullable/omitempty); otherwise fall back to the configured E2B_DOMAIN,
+        // matching the Python SDK (`sandbox_domain or connection_config.domain`).
+        this.sandboxDomain      = (info.getSandboxDomain() != null && !info.getSandboxDomain().isEmpty())
+                ? info.getSandboxDomain()
+                : config.resolvedDomain();
         this.connectionConfig   = config;
         this.apiClient          = apiClient;
         this.envdAccessToken    = accessToken;
@@ -109,16 +114,36 @@ public class Sandbox implements AutoCloseable {
     // -------------------------------------------------------------------------
 
     /**
-     * Connect to an already-running sandbox.
+     * Connect to an already-running sandbox (or resume a paused sandbox).
      *
-     * @param sandboxId Sandbox ID
-     * @param config    Connection configuration
-     * @return Sandbox instance connected to the existing sandbox
+     * <p>Uses {@code POST /sandboxes/{sandboxID}/connect} per sandbox-gateway E2B API.
      */
     public static Sandbox connect(String sandboxId, ConnectionConfig config) {
+        return connect(sandboxId, config, null);
+    }
+
+    /**
+     * Connect to a sandbox, optionally setting a new timeout while resuming.
+     *
+     * @param sandboxId       Sandbox ID
+     * @param config          Connection configuration
+     * @param timeoutSeconds  Optional new timeout in seconds
+     */
+    public static Sandbox connect(String sandboxId, ConnectionConfig config, Integer timeoutSeconds) {
         E2bApiClient api = new E2bApiClient(config);
-        SandboxInfo info = api.get("/sandboxes/" + sandboxId, SandboxInfo.class);
-        return new Sandbox(info, config, api, info.getEnvdAccessToken());
+        Object body = timeoutSeconds != null
+                ? ConnectSandbox.builder().timeout(timeoutSeconds).build()
+                : Collections.emptyMap();
+        SandboxConnectResponse response = api.post(
+                "/sandboxes/" + sandboxId + "/connect", body, SandboxConnectResponse.class);
+        return fromConnectResponse(response, config, api);
+    }
+
+    /**
+     * Get sandbox info by ID without connecting to the data plane.
+     */
+    public static SandboxInfo getInfo(String sandboxId, ConnectionConfig config) {
+        return new E2bApiClient(config).get("/sandboxes/" + sandboxId, SandboxInfo.class);
     }
 
     // -------------------------------------------------------------------------
@@ -200,6 +225,13 @@ public class Sandbox implements AutoCloseable {
     }
 
     /**
+     * List snapshots for this sandbox.
+     */
+    public List<SnapshotInfo> listSnapshots() {
+        return listSnapshots(connectionConfig, sandboxId, null, null);
+    }
+
+    /**
      * Check whether the sandbox is currently running (live ping).
      */
     public boolean isRunning() {
@@ -262,9 +294,24 @@ public class Sandbox implements AutoCloseable {
         E2bApiClient api = new E2bApiClient(config);
         Map<String, String> params = new HashMap<>();
         if (limit     != null) params.put("limit", String.valueOf(limit));
-        if (nextToken != null) params.put("next_token", nextToken);
-        if (query     != null && query.getMetadata() != null) {
-            query.getMetadata().forEach((k, v) -> params.put("metadata[" + k + "]", v));
+        if (nextToken != null) params.put("nextToken", nextToken);
+        if (query     != null) {
+            // The gateway expects a single `metadata` query param whose value is itself a
+            // url-encoded `k=v&k2=v2` string (parsed server-side via url.ParseQuery), matching
+            // the Python SDK (quote each key/value, then urlencode). NOT `metadata[k]=v`.
+            if (query.getMetadata() != null && !query.getMetadata().isEmpty()) {
+                StringBuilder sb = new StringBuilder();
+                for (Map.Entry<String, String> e : query.getMetadata().entrySet()) {
+                    if (sb.length() > 0) sb.append('&');
+                    sb.append(urlEncode(e.getKey())).append('=').append(urlEncode(e.getValue()));
+                }
+                params.put("metadata", sb.toString());
+            }
+            if (query.getState() != null && !query.getState().isEmpty()) {
+                // Map can only carry one state; for multi-state filters callers should page.
+                // Single-state (the common case) is sent as-is.
+                params.put("state", query.getState().get(0).getValue());
+            }
         }
         SandboxInfo[] arr = api.get("/v2/sandboxes", params, SandboxInfo[].class);
         return arr != null ? Arrays.asList(arr) : Collections.emptyList();
@@ -299,6 +346,30 @@ public class Sandbox implements AutoCloseable {
     }
 
     /**
+     * List snapshots visible to the API key.
+     *
+     * @param config    Connection configuration
+     * @param sandboxId Optional source sandbox ID filter (null lists all)
+     * @param limit     Optional page size
+     * @param nextToken Optional pagination cursor
+     */
+    public static List<SnapshotInfo> listSnapshots(ConnectionConfig config,
+                                                   String sandboxId,
+                                                   Integer limit,
+                                                   String nextToken) {
+        Map<String, String> params = new HashMap<>();
+        if (sandboxId != null) params.put("sandboxID", sandboxId);
+        if (limit     != null) params.put("limit", String.valueOf(limit));
+        if (nextToken != null) params.put("nextToken", nextToken);
+        SnapshotInfo[] arr = new E2bApiClient(config).get("/snapshots", params, SnapshotInfo[].class);
+        return arr != null ? Arrays.asList(arr) : Collections.emptyList();
+    }
+
+    public static List<SnapshotInfo> listSnapshots(ConnectionConfig config) {
+        return listSnapshots(config, null, null, null);
+    }
+
+    /**
      * Delete a snapshot by ID.
      */
     public static boolean deleteSnapshot(String snapshotId, ConnectionConfig config) {
@@ -324,9 +395,18 @@ public class Sandbox implements AutoCloseable {
     // Helpers
     // -------------------------------------------------------------------------
 
+    private static String urlEncode(String value) {
+        try {
+            return java.net.URLEncoder.encode(value, "UTF-8");
+        } catch (java.io.UnsupportedEncodingException e) {
+            throw new SandboxException("Failed to encode metadata filter", e);
+        }
+    }
+
     private static NewSandbox copyWithTemplate(NewSandbox src, String template) {
-        return NewSandbox.builder()
+        NewSandbox.NewSandboxBuilder builder = NewSandbox.builder()
                 .templateId(template)
+                .templateName(src.getTemplateName())
                 .timeout(src.getTimeout())
                 .metadata(src.getMetadata())
                 .envVars(src.getEnvVars())
@@ -335,7 +415,23 @@ public class Sandbox implements AutoCloseable {
                 .autoPause(src.getAutoPause())
                 .autoResume(src.getAutoResume())
                 .network(src.getNetwork())
-                .volumeMounts(src.getVolumeMounts())
-                .build();
+                .mcp(src.getMcp())
+                .volumeMounts(src.getVolumeMounts());
+        if (src.getTemplateId() == null && src.getTemplateName() == null) {
+            builder.templateName(template);
+        }
+        return builder.build();
+    }
+
+    private static Sandbox fromConnectResponse(SandboxConnectResponse response,
+                                               ConnectionConfig config,
+                                               E2bApiClient api) {
+        SandboxInfo info = new SandboxInfo();
+        info.setSandboxId(response.getSandboxId());
+        info.setSandboxDomain(response.getSandboxDomain());
+        info.setTemplateId(response.getTemplateId());
+        info.setEnvdAccessToken(response.getEnvdAccessToken());
+        info.setEnvdVersion(response.getEnvdVersion());
+        return new Sandbox(info, config, api, response.getEnvdAccessToken());
     }
 }

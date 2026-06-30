@@ -13,6 +13,6 @@ public class EntryInfo extends WriteInfo {
     private String permissions;
     private String owner;
     private String group;
-    @JsonProperty("modified_time") private Instant modifiedTime;
-    @JsonProperty("symlink_target") private String symlinkTarget;
+    @JsonProperty("modifiedTime") private Instant modifiedTime;
+    @JsonProperty("symlinkTarget") private String symlinkTarget;
 }
