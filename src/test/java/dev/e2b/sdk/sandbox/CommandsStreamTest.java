@@ -58,7 +58,7 @@ class CommandsStreamTest {
                 .setHeader("Content-Type", "application/connect+json")
                 .setBody(body));
 
-        Commands commands = new Commands(api, "sbx-1",
+        Commands commands = new Commands(api,
                 envd.url("").toString().replaceAll("/$", ""), "tok");
 
         CommandResult result = commands.run("echo 'Hello, World!'");
@@ -88,7 +88,7 @@ class CommandsStreamTest {
                 .setHeader("Content-Type", "application/connect+json")
                 .setBody(body));
 
-        Commands commands = new Commands(api, "sbx-1",
+        Commands commands = new Commands(api,
                 envd.url("").toString().replaceAll("/$", ""), "tok");
 
         CommandResult result = commands.run("exit 7");
