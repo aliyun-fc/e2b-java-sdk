@@ -30,7 +30,6 @@ public class Filesystem {
     private static final String FILES_ROUTE = "/files";
 
     private final E2bApiClient api;
-    private final String sandboxId;
     private final String envdUrl;
     private final String accessToken;
 

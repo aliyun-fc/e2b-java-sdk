@@ -70,9 +70,9 @@ public class Sandbox implements AutoCloseable {
         this.envdAccessToken    = accessToken;
 
         String envdUrl = config.getSandboxUrl(sandboxId, sandboxDomain);
-        this.commands = new Commands(apiClient, sandboxId, envdUrl, accessToken);
-        this.files    = new Filesystem(apiClient, sandboxId, envdUrl, accessToken);
-        this.git      = new Git(commands, null);
+        this.commands = new Commands(apiClient, envdUrl, accessToken);
+        this.files    = new Filesystem(apiClient, envdUrl, accessToken);
+        this.git      = new Git(commands);
     }
 
     // -------------------------------------------------------------------------

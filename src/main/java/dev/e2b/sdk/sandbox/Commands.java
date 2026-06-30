@@ -9,8 +9,6 @@ import dev.e2b.sdk.model.ProcessInfo;
 import lombok.RequiredArgsConstructor;
 import okhttp3.*;
 import okio.BufferedSource;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -33,8 +31,6 @@ import java.util.concurrent.TimeUnit;
 @RequiredArgsConstructor
 public class Commands {
 
-    private static final Logger log = LoggerFactory.getLogger(Commands.class);
-
     /** Unary Connect calls use plain JSON. */
     private static final MediaType CONNECT_JSON = MediaType.get("application/json");
     /** Server-streaming Connect calls use enveloped connect+json frames. */
@@ -44,7 +40,6 @@ public class Commands {
     private static final int FLAG_END_STREAM = 0x02;
 
     private final E2bApiClient api;
-    private final String sandboxId;
     private final String envdUrl;
     private final String accessToken;
 

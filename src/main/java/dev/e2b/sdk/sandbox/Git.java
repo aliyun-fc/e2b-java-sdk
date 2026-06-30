@@ -1,12 +1,8 @@
 package dev.e2b.sdk.sandbox;
 
-import dev.e2b.sdk.client.E2bApiClient;
-import dev.e2b.sdk.exception.SandboxException;
 import dev.e2b.sdk.model.*;
 import lombok.RequiredArgsConstructor;
-import okhttp3.*;
 
-import java.io.IOException;
 import java.util.Map;
 
 /**
@@ -15,10 +11,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class Git {
 
-    private static final MediaType JSON = MediaType.get("application/json");
-
     private final Commands commands;
-    private final String defaultCwd;
 
     // -------------------------------------------------------------------------
     // Repository management
