@@ -5,6 +5,6 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 public class SandboxInfoLifecycle {
-    @JsonProperty("on_timeout") private String onTimeout; // "pause" | "kill"
-    @JsonProperty("auto_resume") private boolean autoResume;
+    @JsonProperty("onTimeout") private String onTimeout; // "pause" | "kill"
+    @JsonProperty("autoResume") private boolean autoResume;
 }

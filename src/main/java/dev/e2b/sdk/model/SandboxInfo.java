@@ -1,5 +1,6 @@
 package dev.e2b.sdk.model;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -10,55 +11,67 @@ import java.util.Map;
 
 /**
  * Detailed information about a running or paused sandbox.
- * Field names are camelCase in Java; serialized as snake_case to/from the API.
+ *
+ * <p>JSON names match the sandbox-gateway responses ({@code e2bSandboxResponse},
+ * {@code e2bSandboxDetailResponse}, {@code e2bListedSandboxResponse}): camelCase
+ * with Go-style acronyms (templateID, sandboxID, memoryMB, ...).
  */
 @Data
 @NoArgsConstructor
 public class SandboxInfo {
 
     /** Unique sandbox identifier. */
-    @JsonProperty("sandbox_id")
+    @JsonProperty("sandboxID")
     private String sandboxId;
 
     /** Domain where the sandbox is hosted. */
-    @JsonProperty("sandbox_domain")
+    @JsonProperty("domain")
+    @JsonAlias({"sandbox_domain", "sandboxDomain"})
     private String sandboxDomain;
 
     /** Template ID used to create this sandbox. */
-    @JsonProperty("template_id")
+    @JsonProperty("templateID")
     private String templateId;
 
-    /** Optional display name. */
-    private String name;
+    /** Template alias (user-facing name like "base"). */
+    private String alias;
+
+    /** Deprecated client identifier. */
+    @JsonProperty("clientID")
+    private String clientId;
 
     /** User-supplied metadata key-value pairs. */
     private Map<String, String> metadata;
 
     /** When this sandbox started. */
-    @JsonProperty("started_at")
+    @JsonProperty("startedAt")
     private Instant startedAt;
 
     /** When this sandbox is scheduled to end. */
-    @JsonProperty("end_at")
+    @JsonProperty("endAt")
     private Instant endAt;
 
     /** Current state (running / paused). */
     private SandboxState state;
 
     /** Number of virtual CPUs. */
-    @JsonProperty("cpu_count")
+    @JsonProperty("cpuCount")
     private int cpuCount;
 
     /** RAM in megabytes. */
-    @JsonProperty("memory_mb")
+    @JsonProperty("memoryMB")
     private int memoryMb;
 
+    /** Disk size in megabytes. */
+    @JsonProperty("diskSizeMB")
+    private int diskSizeMb;
+
     /** envd daemon version running inside the sandbox. */
-    @JsonProperty("envd_version")
+    @JsonProperty("envdVersion")
     private String envdVersion;
 
     /** Whether this sandbox can reach the public internet. */
-    @JsonProperty("allow_internet_access")
+    @JsonProperty("allowInternetAccess")
     private Boolean allowInternetAccess;
 
     /** Network configuration snapshot. */
@@ -68,10 +81,10 @@ public class SandboxInfo {
     private SandboxInfoLifecycle lifecycle;
 
     /** Attached volume mounts. */
-    @JsonProperty("volume_mounts")
-    private List<Map<String, String>> volumeMounts;
+    @JsonProperty("volumeMounts")
+    private List<SandboxVolumeMount> volumeMounts;
 
     /** Access token for envd API calls inside the sandbox. */
-    @JsonProperty("envd_access_token")
+    @JsonProperty("envdAccessToken")
     private String envdAccessToken;
 }
