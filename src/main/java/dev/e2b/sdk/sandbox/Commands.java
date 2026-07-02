@@ -18,8 +18,15 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Commands module: run shell commands inside the sandbox.
@@ -39,9 +46,45 @@ public class Commands {
     private static final int ENVELOPE_HEADER_LEN = 5;
     private static final int FLAG_END_STREAM = 0x02;
 
+    /**
+     * Shared daemon executor that drains background-command streams. Threads are pooled and reused
+     * (idle ones expire after 60s) and named for debuggability, replacing the previous "one raw
+     * {@code new Thread} per background command" approach. Bounded at {@link #MAX_DRAINERS} pooled
+     * threads; because each drain task blocks for the lifetime of its process, an overflow beyond
+     * the bound is run on a temporary daemon thread rather than queued, so a slow drain never stalls
+     * another command's stream.
+     */
+    private static final int MAX_DRAINERS = 128;
+    private static final AtomicInteger DRAIN_SEQ = new AtomicInteger();
+    private static final ExecutorService BACKGROUND_DRAINERS = newBackgroundDrainPool();
+
+    private static ExecutorService newBackgroundDrainPool() {
+        ThreadFactory factory = r -> {
+            Thread t = new Thread(r, "e2b-cmd-drain-" + DRAIN_SEQ.incrementAndGet());
+            t.setDaemon(true);
+            return t;
+        };
+        return new ThreadPoolExecutor(
+                0, MAX_DRAINERS, 60L, TimeUnit.SECONDS,
+                new SynchronousQueue<Runnable>(), factory,
+                (r, ex) -> {
+                    Thread t = new Thread(r, "e2b-cmd-drain-overflow-" + DRAIN_SEQ.incrementAndGet());
+                    t.setDaemon(true);
+                    t.start();
+                });
+    }
+
     private final E2bApiClient api;
     private final String envdUrl;
     private final String accessToken;
+
+    /**
+     * In-flight background-command streams (from {@link #runBackground}). These are the only calls
+     * that can stay open indefinitely ({@code readTimeout(0)}), so they are tracked here and
+     * cancelled when the sandbox is destroyed (see {@link #closeActive()}), which also lets their
+     * drain threads exit and releases the underlying connection.
+     */
+    private final Set<Call> activeCalls = ConcurrentHashMap.newKeySet();
 
     /**
      * Run a shell command in the foreground (waits for completion).
@@ -136,6 +179,9 @@ public class Commands {
             throw new SandboxException("Background command start failed (" + resp.code() + "): " + err);
         }
 
+        // Track this long-lived stream so the sandbox can cancel it on destroy.
+        activeCalls.add(call);
+
         BufferedSource source = resp.body().source();
         StringBuilder stdout = new StringBuilder();
         StringBuilder stderr = new StringBuilder();
@@ -152,6 +198,7 @@ public class Commands {
 
         if (pid < 0) {
             // Process produced an end (or EOF) before any start event — already finished.
+            activeCalls.remove(call);
             resp.close();
             CommandResult finished = CommandResult.builder()
                     .stdout(stdout.toString()).stderr(stderr.toString())
@@ -160,7 +207,7 @@ public class Commands {
         }
 
         CompletableFuture<CommandResult> future = new CompletableFuture<CommandResult>();
-        Thread drain = new Thread(() -> {
+        BACKGROUND_DRAINERS.execute(() -> {
             try {
                 drainRemaining(source, stdout, stderr, exit, error);
                 future.complete(CommandResult.builder()
@@ -170,10 +217,9 @@ public class Commands {
                 future.completeExceptionally(new SandboxException("Background command stream error", e));
             } finally {
                 resp.close();
+                activeCalls.remove(call);
             }
-        }, "e2b-cmd-" + pid);
-        drain.setDaemon(true);
-        drain.start();
+        });
 
         return new CommandHandle(pid, future, call);
     }
@@ -181,6 +227,29 @@ public class Commands {
     /** Start a command in the background with defaults. */
     public CommandHandle runBackground(String cmd) {
         return runBackground(cmd, null, null, null);
+    }
+
+    /**
+     * Cancel any still-open background-command streams started by {@link #runBackground}.
+     *
+     * <p>Invoked when the owning sandbox is destroyed ({@link dev.e2b.sdk.Sandbox#kill()} /
+     * {@link dev.e2b.sdk.Sandbox#close()}). Cancelling each {@link Call} interrupts its blocking
+     * read, so the daemon drain thread completes the pending future exceptionally and returns to the
+     * pool, and the underlying HTTP connection is released back to the shared pool instead of
+     * lingering until the (disabled) read timeout. Idle connections are still reclaimed by OkHttp's
+     * shared connection-pool keep-alive, matching the behaviour of other E2B Java SDKs.
+     */
+    public void closeActive() {
+        for (Call c : activeCalls) {
+            try {
+                if (!c.isCanceled()) {
+                    c.cancel();
+                }
+            } catch (Exception ignored) {
+                // best-effort: keep cancelling the rest
+            }
+        }
+        activeCalls.clear();
     }
 
     private Map<String, Object> buildStartRequest(String cmd, Map<String, String> envs, String cwd) {

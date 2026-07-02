@@ -35,9 +35,36 @@ public class E2bApiClient {
         this.mapper = buildObjectMapper();
     }
 
+    /**
+     * Process-wide shared base client. Per OkHttp's guidance an {@code OkHttpClient} (and thus its
+     * dispatcher thread pool + connection pool) should be shared across the whole application; the
+     * per-config client returned by {@link #buildHttpClient} is derived from this base via
+     * {@code newBuilder()}, so every sandbox and every static API call reuse the same pools instead
+     * of allocating a fresh connection pool per {@code create}. Mirrors the shared/injectable client
+     * pattern used by the OpenAI, Kubernetes and AgentScope Java SDKs.
+     */
+    private static volatile OkHttpClient sharedBase;
+
+    private static OkHttpClient sharedBase() {
+        OkHttpClient c = sharedBase;
+        if (c == null) {
+            synchronized (E2bApiClient.class) {
+                c = sharedBase;
+                if (c == null) {
+                    c = new OkHttpClient();
+                    sharedBase = c;
+                }
+            }
+        }
+        return c;
+    }
+
     private OkHttpClient buildHttpClient(ConnectionConfig cfg) {
         long timeoutMs = (long) (cfg.getRequestTimeout() * 1000);
-        return new OkHttpClient.Builder()
+        OkHttpClient base = cfg.getHttpClient() != null ? cfg.getHttpClient() : sharedBase();
+        // Derive a per-config client that keeps this config's timeouts while sharing the base's
+        // dispatcher thread pool and connection pool.
+        return base.newBuilder()
                 .connectTimeout(timeoutMs, TimeUnit.MILLISECONDS)
                 .readTimeout(timeoutMs, TimeUnit.MILLISECONDS)
                 .writeTimeout(timeoutMs, TimeUnit.MILLISECONDS)

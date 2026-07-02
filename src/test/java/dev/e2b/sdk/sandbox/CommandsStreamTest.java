@@ -2,6 +2,7 @@ package dev.e2b.sdk.sandbox;
 
 import dev.e2b.sdk.client.ConnectionConfig;
 import dev.e2b.sdk.client.E2bApiClient;
+import dev.e2b.sdk.exception.SandboxException;
 import dev.e2b.sdk.model.CommandResult;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -15,6 +16,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -94,6 +96,50 @@ class CommandsStreamTest {
         CommandResult result = commands.run("exit 7");
         assertEquals(7, result.getExitCode());
         assertFalse(result.isSuccess());
+    }
+
+    @Test
+    void closeActive_cancelsOpenBackgroundStreamAndReleasesDrainThread() throws Exception {
+        // A background process that has started but not yet ended: the stream stays open, so the
+        // drain thread blocks reading. Throttling keeps the body from completing while we cancel.
+        StringBuilder padding = new StringBuilder();
+        for (int i = 0; i < 300; i++) {
+            padding.append('x');
+        }
+        Buffer body = new Buffer();
+        body.write(frame(0x00, "{\"event\":{\"start\":{\"pid\":42}}}"));
+        body.write(frame(0x00, "{\"event\":{\"data\":{\"stdout\":\"" + b64(padding.toString()) + "\"}}}"));
+        // Intentionally no end (0x02) frame — the stream would otherwise stay open forever.
+
+        envd.enqueue(new MockResponse()
+                .setHeader("Content-Type", "application/connect+json")
+                .setBody(body)
+                // Deliver the first 64 bytes (enough for the start frame) immediately, then stall,
+                // so runBackground returns a live handle whose drain thread is blocked on read.
+                .throttleBody(64, 5, TimeUnit.SECONDS));
+
+        Commands commands = new Commands(api,
+                envd.url("").toString().replaceAll("/$", ""), "tok");
+
+        CommandHandle handle = commands.runBackground("sleep 999");
+        assertEquals(42, handle.getPid());
+        assertFalse(handle.isDone(), "background command should still be running");
+
+        // Simulate sandbox destruction: cancel in-flight background streams.
+        long t0 = System.nanoTime();
+        commands.closeActive();
+
+        // The blocked drain read is interrupted, so the future completes (exceptionally) promptly
+        // instead of hanging forever on the disabled read timeout (readTimeout=0).
+        SandboxException ex = assertThrows(SandboxException.class,
+                () -> handle.waitForExit(3, TimeUnit.SECONDS));
+        long elapsedMs = (System.nanoTime() - t0) / 1_000_000;
+
+        assertTrue(handle.isDone(), "drain thread should have finished after cancel");
+        assertNotNull(ex);
+        // Fast completion (well under the 3s wait) proves the stream was actually cancelled rather
+        // than left to hang; without the cancel the drain would never return.
+        assertTrue(elapsedMs < 2000, "cancel should unblock the drain promptly, took " + elapsedMs + "ms");
     }
 
     private static String b64(String s) {

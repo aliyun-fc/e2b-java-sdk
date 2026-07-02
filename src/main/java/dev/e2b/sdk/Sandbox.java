@@ -156,6 +156,12 @@ public class Sandbox implements AutoCloseable {
      * @return true if the sandbox was killed successfully
      */
     public boolean kill() {
+        // Cancel any open background-command streams first so their drain threads exit and the
+        // underlying connections are released rather than lingering after the sandbox is gone.
+        try {
+            commands.closeActive();
+        } catch (Exception ignored) {
+        }
         return apiClient.delete("/sandboxes/" + sandboxId);
     }
 
