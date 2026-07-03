@@ -165,6 +165,15 @@ public class Sandbox implements AutoCloseable {
         return apiClient.delete("/sandboxes/" + sandboxId);
     }
 
+    public boolean release() {
+        try {
+            commands.closeActive();
+        } catch (Exception ignored) {
+            return false;
+        }
+        return true;
+    }
+
     /**
      * Pause this sandbox (preserves state; can be resumed later).
      *
