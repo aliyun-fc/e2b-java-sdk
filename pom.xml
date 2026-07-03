@@ -75,6 +75,10 @@
     </dependencies>
 
     <distributionManagement>
+        <repository>
+            <id>pre-releases</id>
+            <url>https://artlab.alibaba-inc.com/1/maven/releases/</url>
+        </repository>
         <snapshotRepository>
             <id>snapshots</id>
             <url>https://artlab.alibaba-inc.com/1/maven/snapshots/</url>
