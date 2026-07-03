@@ -2,6 +2,7 @@ package dev.e2b.sdk.client;
 
 import lombok.Builder;
 import lombok.Getter;
+import okhttp3.OkHttpClient;
 
 import java.util.Map;
 
@@ -52,6 +53,16 @@ public class ConnectionConfig {
     /** Whether to validate the API key on first use. */
     @Builder.Default
     private final boolean validateApiKey = true;
+
+    /**
+     * Optional pre-built {@link OkHttpClient} to reuse across all sandboxes and API calls.
+     *
+     * <p>When set, every {@code E2bApiClient} derives its client from this instance (via
+     * {@code newBuilder()}), so the whole application shares one dispatcher thread pool and one
+     * connection pool — the pattern recommended by OkHttp and used by the OpenAI / Kubernetes /
+     * AgentScope Java SDKs. When left null, the SDK falls back to a process-wide shared client.
+     */
+    private final OkHttpClient httpClient;
 
     /**
      * Resolves the effective API key: constructor arg, then E2B_API_KEY env var.
