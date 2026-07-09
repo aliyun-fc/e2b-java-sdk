@@ -2,7 +2,7 @@
 
 Java SDK for [阿里云云沙箱 (FC Agent Sandbox)](https://aliyun-fc.github.io/fc-docs/docs/zh-CN/01.%E4%BA%91%E6%B2%99%E7%AE%B1/) — an E2B‑compatible client for running AI‑generated code and commands in secure, isolated cloud sandboxes, from the JVM.
 
-云沙箱原生兼容 E2B。本 SDK 是其 Java 客户端,让你可以在 JVM 上创建并控制沙箱:执行命令、读写文件、使用 Git、运行代码 (Code Interpreter)、构建模板、暂停/恢复等。
+云沙箱原生兼容 E2B。本 SDK 是其 Java 客户端,让你可以在 JVM 上创建并控制沙箱:执行命令、读写文件、运行代码 (Code Interpreter)、构建模板、暂停/恢复等。
 
 > **地域**:云沙箱目前仅支持华北2(北京)。
 
@@ -143,22 +143,6 @@ fs.rename("/home/user/a.txt", "/home/user/b.txt");
 fs.makeDir("/home/user/dir");
 fs.remove("/home/user/dir");
 sandbox.downloadUrl("/home/user/b.txt");              // pre-signed download URL
-```
-
-### Git
-
-```java
-Git git = sandbox.getGit();
-String repo = "/home/user/repo";
-git.clone("https://example.com/repo.git", repo);
-git.configureUser("me", "me@example.com", "local", repo);
-git.add(repo);
-git.commit(repo, "my commit");
-git.push(repo);
-git.pull(repo);
-git.createBranch(repo, "feature");
-git.checkoutBranch(repo, "feature");
-git.status(repo);
 ```
 
 ### Code Interpreter contexts
