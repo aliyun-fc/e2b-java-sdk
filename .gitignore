@@ -1,2 +1,6 @@
 target/
 *.class
+
+# JetBrains IDE
+.idea/
+*.iml
