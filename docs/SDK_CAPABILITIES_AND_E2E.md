@@ -85,7 +85,7 @@
 | `FilesystemE2eTest` | read/write/list/rename/makeDir/二进制 | ✅ |
 | `GitE2eTest` | git clone | ✅ |
 | `GitExtendedE2eTest` | git add/commit/branch/config | ✅ |
-| `EnvVarsE2eTest` | envVars | ✅ |
+| `EnvVarsE2eTest` | create-time envVars（可选 `E2E_BASE_TEMPLATE_IMAGE` 先建临时模板，对齐 py-06） | ✅ |
 | `DynamicPortE2eTest` | getHost / 动态端口 | ✅ |
 | `MetadataE2eTest` | metadata + Sandbox.list 过滤 | ✅ |
 | `CodeInterpreterE2eTest` | runCode / 富结果 / envVars / 上下文 / 错误捕获 | ✅ |

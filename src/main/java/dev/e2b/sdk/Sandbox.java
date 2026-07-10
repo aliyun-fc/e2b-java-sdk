@@ -9,6 +9,8 @@ import dev.e2b.sdk.sandbox.Filesystem;
 import dev.e2b.sdk.sandbox.Git;
 import lombok.Getter;
 
+import dev.e2b.sdk.util.EnvVars;
+
 import java.time.Instant;
 import java.util.*;
 
@@ -92,6 +94,10 @@ public class Sandbox implements AutoCloseable {
 
         NewSandbox body = opts != null ? opts : NewSandbox.builder().build();
         if (template != null) body = copyWithTemplate(body, template);
+        // Align with gateway: omit empty envVars; trim keys/values like e2bTrimEnvVars.
+        if (body.getEnvVars() != null) {
+            body = copyWithEnvVars(body, EnvVars.normalize(body.getEnvVars()));
+        }
 
         SandboxInfo info = api.post("/sandboxes", body, SandboxInfo.class);
         return new Sandbox(info, config, api, info.getEnvdAccessToken());
@@ -419,8 +425,21 @@ public class Sandbox implements AutoCloseable {
     }
 
     private static NewSandbox copyWithTemplate(NewSandbox src, String template) {
-        NewSandbox.NewSandboxBuilder builder = NewSandbox.builder()
-                .templateId(template)
+        NewSandbox.NewSandboxBuilder builder = copyBuilder(src)
+                .templateId(template);
+        if (src.getTemplateId() == null && src.getTemplateName() == null) {
+            builder.templateName(template);
+        }
+        return builder.build();
+    }
+
+    private static NewSandbox copyWithEnvVars(NewSandbox src, Map<String, String> envVars) {
+        return copyBuilder(src).envVars(envVars).build();
+    }
+
+    private static NewSandbox.NewSandboxBuilder copyBuilder(NewSandbox src) {
+        return NewSandbox.builder()
+                .templateId(src.getTemplateId())
                 .templateName(src.getTemplateName())
                 .timeout(src.getTimeout())
                 .metadata(src.getMetadata())
@@ -432,10 +451,6 @@ public class Sandbox implements AutoCloseable {
                 .network(src.getNetwork())
                 .mcp(src.getMcp())
                 .volumeMounts(src.getVolumeMounts());
-        if (src.getTemplateId() == null && src.getTemplateName() == null) {
-            builder.templateName(template);
-        }
-        return builder.build();
     }
 
     private static Sandbox fromConnectResponse(SandboxConnectResponse response,
