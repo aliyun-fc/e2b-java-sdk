@@ -5,6 +5,8 @@ import dev.e2b.sdk.client.E2bApiClient;
 import dev.e2b.sdk.exception.TemplateException;
 import dev.e2b.sdk.model.*;
 
+import dev.e2b.sdk.util.EnvVars;
+
 import java.net.URLEncoder;
 import java.util.Arrays;
 import java.util.Collections;
@@ -88,9 +90,23 @@ public final class Template {
                                   String buildId,
                                   TemplateBuildStartV2 request,
                                   ConnectionConfig config) {
+        TemplateBuildStartV2 body = request;
+        if (request != null && request.getEnvVars() != null) {
+            // Match gateway e2bTrimEnvVars before POST so empty/blank-key maps are omitted.
+            body = TemplateBuildStartV2.builder()
+                    .fromImage(request.getFromImage())
+                    .fromTemplate(request.getFromTemplate())
+                    .fromImageRegistry(request.getFromImageRegistry())
+                    .force(request.getForce())
+                    .steps(request.getSteps())
+                    .startCmd(request.getStartCmd())
+                    .readyCmd(request.getReadyCmd())
+                    .envVars(EnvVars.normalize(request.getEnvVars()))
+                    .build();
+        }
         new E2bApiClient(config).post(
                 "/v2/templates/" + encode(templateId) + "/builds/" + encode(buildId),
-                request,
+                body,
                 Void.class);
     }
 
@@ -153,6 +169,19 @@ public final class Template {
                                                     String image,
                                                     ConnectionConfig config,
                                                     long timeoutSeconds) {
+        return buildFromImage(alias, image, null, config, timeoutSeconds);
+    }
+
+    /**
+     * Create a template alias, start an image build with optional default env vars, and wait until READY.
+     *
+     * @param envVars template-level environment variables (may be null); sandbox create-time envVars override these
+     */
+    public static TemplateWithBuilds buildFromImage(String alias,
+                                                    String image,
+                                                    Map<String, String> envVars,
+                                                    ConnectionConfig config,
+                                                    long timeoutSeconds) {
         // Request a build via POST /v3/templates (the v2 create endpoint can hold the connection
         // open on some gateways; v3 is the current path used by the reference SDK).
         TemplateBuildRequestV3 createReq = TemplateBuildRequestV3.builder()
@@ -167,6 +196,7 @@ public final class Template {
 
         TemplateBuildStartV2 startReq = TemplateBuildStartV2.builder()
                 .fromImage(image)
+                .envVars(EnvVars.normalize(envVars))
                 .build();
         startBuild(created.getTemplateId(), created.getBuildId(), startReq, config);
 
