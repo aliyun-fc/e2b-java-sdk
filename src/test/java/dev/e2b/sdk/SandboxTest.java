@@ -129,6 +129,41 @@ class SandboxTest {
     }
 
     // -------------------------------------------------------------------------
+    // Sandbox.isRunning
+    // -------------------------------------------------------------------------
+
+    @Test
+    void isRunning_returnsFalseOnNotFound() {
+        server.enqueue(new MockResponse()
+                .setBody("{\"sandboxID\":\"sbx-xyz\",\"domain\":\"sandbox.e2b.app\","
+                        + "\"templateID\":\"python\",\"envdVersion\":\"0.1.0\","
+                        + "\"envdAccessToken\":\"tok-xyz\"}")
+                .setHeader("Content-Type", "application/json"));
+        server.enqueue(new MockResponse().setResponseCode(404).setBody("gone"));
+
+        Sandbox sandbox = Sandbox.connect("sbx-xyz", config);
+        assertFalse(sandbox.isRunning());
+    }
+
+    @Test
+    void isRunning_rethrowsAuthenticationException() {
+        server.enqueue(new MockResponse()
+                .setBody("{\"sandboxID\":\"sbx-xyz\",\"domain\":\"sandbox.e2b.app\","
+                        + "\"templateID\":\"python\",\"envdVersion\":\"0.1.0\","
+                        + "\"envdAccessToken\":\"tok-xyz\"}")
+                .setHeader("Content-Type", "application/json"));
+        server.enqueue(new MockResponse()
+                .setResponseCode(401)
+                .setBody("unauthorized")
+                .setHeader("X-Request-ID", "req-401"));
+
+        Sandbox sandbox = Sandbox.connect("sbx-xyz", config);
+        AuthenticationException ex = assertThrows(AuthenticationException.class, sandbox::isRunning);
+        assertEquals(401, ex.getStatusCode());
+        assertEquals("req-401", ex.getRequestId());
+    }
+
+    // -------------------------------------------------------------------------
     // Sandbox.getInfo
     // -------------------------------------------------------------------------
 
