@@ -9,7 +9,7 @@ import java.util.Collections;
 import java.util.Map;
 
 /**
- * Result of getting a template, including request tracing metadata.
+ * Result of getting a template, including build pagination and request tracing metadata.
  */
 @Data
 @Builder
@@ -19,6 +19,9 @@ public class GetTemplateOutput {
 
     /** Template details (with builds) from the response body. */
     private TemplateWithBuilds template;
+
+    /** Pagination cursor for the next page of builds, from response header {@code x-next-token}. */
+    private String nextToken;
 
     /** Request identifier from {@code X-Request-ID}, or {@code x-fc-request-id} if absent. */
     private String requestId;

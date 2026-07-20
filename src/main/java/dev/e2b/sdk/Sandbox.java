@@ -53,15 +53,21 @@ public class Sandbox implements AutoCloseable {
 
     private final String envdAccessToken;
 
-    /** Request identifier ({@code X-Request-ID} or {@code x-fc-request-id}) of the create/connect API call that produced this instance. */
+    /**
+     * Request identifier ({@code X-Request-ID} or {@code x-fc-request-id}) of the create/connect
+     * API call that produced this instance.
+     */
     private final String requestId;
+
+    /** Full HTTP response headers from the create/connect API call that produced this instance. */
+    private final Map<String, String> headers;
 
     // -------------------------------------------------------------------------
     // Constructors (private — use static factory methods)
     // -------------------------------------------------------------------------
 
     private Sandbox(SandboxInfo info, ConnectionConfig config, E2bApiClient apiClient,
-                    String accessToken, String requestId) {
+                    String accessToken, String requestId, Map<String, String> headers) {
         this.sandboxId          = info.getSandboxId();
         // The create/connect responses carry `domain` only when the gateway overrides it
         // (it is nullable/omitempty); otherwise fall back to the configured E2B_DOMAIN,
@@ -73,6 +79,9 @@ public class Sandbox implements AutoCloseable {
         this.apiClient          = apiClient;
         this.envdAccessToken    = accessToken;
         this.requestId          = requestId;
+        this.headers            = headers == null || headers.isEmpty()
+                ? Collections.emptyMap()
+                : Collections.unmodifiableMap(new LinkedHashMap<>(headers));
 
         String envdUrl = config.getSandboxUrl(sandboxId, sandboxDomain);
         this.commands = new Commands(apiClient, envdUrl, accessToken);
@@ -90,8 +99,8 @@ public class Sandbox implements AutoCloseable {
      * @param template Template ID or name (e.g. "base", "python")
      * @param config   Connection configuration
      * @param opts     Additional creation options (timeout, metadata, envs, …)
-     * @return Running Sandbox instance; the create call's request id is available via
-     *         {@link #getRequestId()}
+     * @return Running Sandbox instance; the create call's request id and headers are available via
+     *         {@link #getRequestId()} and {@link #getHeaders()}
      */
     public static Sandbox create(String template, ConnectionConfig config, NewSandbox opts) {
         E2bApiClient api = new E2bApiClient(config);
@@ -101,7 +110,8 @@ public class Sandbox implements AutoCloseable {
 
         ApiResponse<SandboxInfo> response = api.postWithResponse("/sandboxes", body, SandboxInfo.class);
         SandboxInfo info = response.getBody();
-        return new Sandbox(info, config, api, info.getEnvdAccessToken(), response.requestId());
+        return new Sandbox(info, config, api, info.getEnvdAccessToken(),
+                response.requestId(), response.headersAsMap());
     }
 
     public static Sandbox create(ConnectionConfig config) {
@@ -143,7 +153,8 @@ public class Sandbox implements AutoCloseable {
                 : Collections.emptyMap();
         ApiResponse<SandboxConnectResponse> response = api.postWithResponse(
                 "/sandboxes/" + sandboxId + "/connect", body, SandboxConnectResponse.class);
-        return fromConnectResponse(response.getBody(), config, api, response.requestId());
+        return fromConnectResponse(response.getBody(), config, api,
+                response.requestId(), response.headersAsMap());
     }
 
     /**
@@ -454,7 +465,7 @@ public class Sandbox implements AutoCloseable {
      * @param sandboxId Optional source sandbox ID filter (null lists all)
      * @param limit     Optional page size
      * @param nextToken Optional pagination cursor
-     * @return snapshots plus {@code requestId} from response headers
+     * @return snapshots plus {@code nextToken} / {@code requestId} from response headers
      */
     public static ListSnapshotsOutput listSnapshots(ConnectionConfig config,
                                                     String sandboxId,
@@ -469,6 +480,7 @@ public class Sandbox implements AutoCloseable {
         SnapshotInfo[] arr = response.getBody();
         return ListSnapshotsOutput.builder()
                 .snapshots(arr != null ? Arrays.asList(arr) : Collections.emptyList())
+                .nextToken(response.header(HEADER_NEXT_TOKEN))
                 .requestId(response.requestId())
                 .headers(response.headersAsMap())
                 .build();
@@ -543,13 +555,14 @@ public class Sandbox implements AutoCloseable {
     private static Sandbox fromConnectResponse(SandboxConnectResponse response,
                                                ConnectionConfig config,
                                                E2bApiClient api,
-                                               String requestId) {
+                                               String requestId,
+                                               Map<String, String> headers) {
         SandboxInfo info = new SandboxInfo();
         info.setSandboxId(response.getSandboxId());
         info.setSandboxDomain(response.getSandboxDomain());
         info.setTemplateId(response.getTemplateId());
         info.setEnvdAccessToken(response.getEnvdAccessToken());
         info.setEnvdVersion(response.getEnvdVersion());
-        return new Sandbox(info, config, api, response.getEnvdAccessToken(), requestId);
+        return new Sandbox(info, config, api, response.getEnvdAccessToken(), requestId, headers);
     }
 }

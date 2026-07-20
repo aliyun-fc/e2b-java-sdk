@@ -55,11 +55,29 @@ class TemplateTest {
         server.enqueue(new MockResponse()
                 .setBody("{\"templateID\":\"tpl-1\",\"public\":true,\"names\":[\"base\"],"
                         + "\"builds\":[{\"buildID\":\"b-1\",\"status\":\"ready\",\"cpuCount\":2,\"memoryMB\":2048}]}")
-                .setHeader("Content-Type", "application/json"));
+                .setHeader("Content-Type", "application/json")
+                .setHeader("x-next-token", "builds-token-2")
+                .setHeader("X-Request-ID", "req-tpl-get-1"));
 
-        TemplateWithBuilds template = Template.get("base", config).getTemplate();
+        GetTemplateOutput output = Template.get("base", config, 1, null);
+        TemplateWithBuilds template = output.getTemplate();
         assertEquals("tpl-1", template.getTemplateId());
         assertEquals(1, template.getBuilds().size());
+        assertEquals("builds-token-2", output.getNextToken());
+        assertEquals("req-tpl-get-1", output.getRequestId());
+    }
+
+    @Test
+    void get_sendsNextTokenForPagination() throws InterruptedException {
+        server.enqueue(new MockResponse()
+                .setBody("{\"templateID\":\"tpl-1\",\"public\":true,\"names\":[\"base\"],\"builds\":[]}")
+                .setHeader("Content-Type", "application/json"));
+
+        Template.get("base", config, 5, "builds-cursor");
+
+        okhttp3.mockwebserver.RecordedRequest request = server.takeRequest();
+        assertTrue(request.getPath().contains("nextToken=builds-cursor"), request.getPath());
+        assertTrue(request.getPath().contains("limit=5"), request.getPath());
     }
 
     @Test
