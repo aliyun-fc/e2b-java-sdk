@@ -230,15 +230,17 @@ public class E2bApiClient {
         if (resp.isSuccessful()) return;
         String body = resp.body() != null ? resp.body().string() : "";
         int code = resp.code();
+        String requestId = ApiResponse.requestIdFrom(resp.headers());
+        Map<String, String> headers = ApiResponse.headersAsMap(resp.headers());
         switch (code) {
             case 401:
-                throw new AuthenticationException("Authentication failed: " + body);
+                throw new AuthenticationException("Authentication failed: " + body, code, requestId, headers);
             case 404:
-                throw new SandboxNotFoundException("Resource not found: " + body);
+                throw new SandboxNotFoundException("Resource not found: " + body, code, requestId, headers);
             case 429:
-                throw new RateLimitException("Rate limit exceeded: " + body);
+                throw new RateLimitException("Rate limit exceeded: " + body, code, requestId, headers);
             default:
-                throw new SandboxException("API error " + code + ": " + body);
+                throw new SandboxException("API error " + code + ": " + body, code, requestId, headers);
         }
     }
 

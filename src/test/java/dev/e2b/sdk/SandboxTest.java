@@ -2,6 +2,8 @@ package dev.e2b.sdk;
 
 import dev.e2b.sdk.client.ConnectionConfig;
 import dev.e2b.sdk.exception.AuthenticationException;
+import dev.e2b.sdk.exception.SandboxException;
+import dev.e2b.sdk.exception.SandboxNotFoundException;
 import dev.e2b.sdk.model.*;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -48,12 +50,15 @@ class SandboxTest {
                 .setBody("{\"sandboxID\":\"sbx-abc\",\"domain\":\"sandbox.e2b.app\","
                         + "\"templateID\":\"base\",\"clientID\":\"c-1\",\"envdVersion\":\"0.1.0\","
                         + "\"envdAccessToken\":\"tok-abc\"}")
-                .setHeader("Content-Type", "application/json"));
+                .setHeader("Content-Type", "application/json")
+                .setHeader("X-Request-ID", "req-create-1"));
 
         Sandbox sandbox = Sandbox.create("base", config);
 
         assertEquals("sbx-abc",            sandbox.getSandboxId());
         assertEquals("sandbox.e2b.app",    sandbox.getSandboxDomain());
+        assertEquals("req-create-1",       sandbox.getRequestId());
+        assertEquals("req-create-1",       sandbox.getHeaders().get("X-Request-ID"));
         assertNotNull(sandbox.getCommands());
         assertNotNull(sandbox.getFiles());
         assertNotNull(sandbox.getGit());
@@ -72,6 +77,38 @@ class SandboxTest {
         assertThrows(AuthenticationException.class, () -> Sandbox.create("base", badConfig));
     }
 
+    @Test
+    void getInfo_notFound_preservesRequestIdAndHeaders() {
+        server.enqueue(new MockResponse()
+                .setResponseCode(404)
+                .setBody("{\"message\":\"not found\"}")
+                .setHeader("Content-Type", "application/json")
+                .setHeader("X-Request-ID", "req-404")
+                .setHeader("x-custom", "v1"));
+
+        SandboxNotFoundException ex = assertThrows(
+                SandboxNotFoundException.class, () -> Sandbox.getInfo("missing", config));
+        assertEquals(404, ex.getStatusCode());
+        assertEquals("req-404", ex.getRequestId());
+        assertEquals("req-404", ex.getHeaders().get("X-Request-ID"));
+        assertEquals("v1", ex.getHeaders().get("x-custom"));
+        assertTrue(ex.getMessage().contains("not found"));
+    }
+
+    @Test
+    void getInfo_serverError_fallsBackToFcRequestId() {
+        server.enqueue(new MockResponse()
+                .setResponseCode(500)
+                .setBody("boom")
+                .setHeader("x-fc-request-id", "fc-req-500"));
+
+        SandboxException ex = assertThrows(SandboxException.class, () -> Sandbox.getInfo("sbx-1", config));
+        assertEquals(500, ex.getStatusCode());
+        assertEquals("fc-req-500", ex.getRequestId());
+        assertEquals("fc-req-500", ex.getHeaders().get("x-fc-request-id"));
+        assertFalse(ex instanceof SandboxNotFoundException);
+    }
+
     // -------------------------------------------------------------------------
     // Sandbox.connect
     // -------------------------------------------------------------------------
@@ -82,10 +119,13 @@ class SandboxTest {
                 .setBody("{\"sandboxID\":\"sbx-xyz\",\"domain\":\"sandbox.e2b.app\","
                         + "\"templateID\":\"python\",\"envdVersion\":\"0.1.0\","
                         + "\"envdAccessToken\":\"tok-xyz\"}")
-                .setHeader("Content-Type", "application/json"));
+                .setHeader("Content-Type", "application/json")
+                .setHeader("x-fc-request-id", "fc-req-connect-1"));
 
         Sandbox sandbox = Sandbox.connect("sbx-xyz", config);
         assertEquals("sbx-xyz", sandbox.getSandboxId());
+        assertEquals("fc-req-connect-1", sandbox.getRequestId());
+        assertEquals("fc-req-connect-1", sandbox.getHeaders().get("x-fc-request-id"));
     }
 
     // -------------------------------------------------------------------------
@@ -159,20 +199,38 @@ class SandboxTest {
     void listSnapshots_parsesAndSendsFilter() throws InterruptedException {
         server.enqueue(new MockResponse()
                 .setBody("[{\"snapshotID\":\"snap-1\",\"sandboxID\":\"sbx-1\",\"names\":[\"a\",\"b\"]}]")
-                .setHeader("Content-Type", "application/json"));
+                .setHeader("Content-Type", "application/json")
+                .setHeader("x-next-token", "snap-token-2")
+                .setHeader("X-Request-ID", "req-snap-1"));
 
-        List<SnapshotInfo> snapshots = Sandbox.listSnapshots(config, "sbx-1", 50, null).getSnapshots();
+        ListSnapshotsOutput output = Sandbox.listSnapshots(config, "sbx-1", 50, null);
+        List<SnapshotInfo> snapshots = output.getSnapshots();
 
         assertEquals(1, snapshots.size());
         assertEquals("snap-1", snapshots.get(0).getSnapshotId());
         assertEquals("sbx-1", snapshots.get(0).getSandboxId());
         assertEquals(java.util.Arrays.asList("a", "b"), snapshots.get(0).getNames());
+        assertEquals("snap-token-2", output.getNextToken());
+        assertEquals("req-snap-1", output.getRequestId());
 
         okhttp3.mockwebserver.RecordedRequest request = server.takeRequest();
         assertEquals("GET", request.getMethod());
         assertTrue(request.getPath().startsWith("/snapshots"), request.getPath());
         assertTrue(request.getPath().contains("sandboxID=sbx-1"), request.getPath());
         assertTrue(request.getPath().contains("limit=50"), request.getPath());
+    }
+
+    @Test
+    void listSnapshots_sendsNextTokenForPagination() throws InterruptedException {
+        server.enqueue(new MockResponse()
+                .setBody("[]")
+                .setHeader("Content-Type", "application/json"));
+
+        Sandbox.listSnapshots(config, null, 10, "cursor-abc");
+
+        okhttp3.mockwebserver.RecordedRequest request = server.takeRequest();
+        assertTrue(request.getPath().contains("nextToken=cursor-abc"), request.getPath());
+        assertTrue(request.getPath().contains("limit=10"), request.getPath());
     }
 
     // -------------------------------------------------------------------------

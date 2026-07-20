@@ -34,14 +34,7 @@ public final class ApiResponse<T> {
      * from the first occurrence of each header.
      */
     public Map<String, String> headersAsMap() {
-        if (headers.size() == 0) {
-            return Collections.emptyMap();
-        }
-        Map<String, String> map = new LinkedHashMap<>();
-        for (String name : headers.names()) {
-            map.put(name, headers.get(name));
-        }
-        return Collections.unmodifiableMap(map);
+        return headersAsMap(headers);
     }
 
     /** Returns the first header value for {@code name} (case-insensitive), or null. */
@@ -55,6 +48,30 @@ public final class ApiResponse<T> {
      * Returns null when neither is present.
      */
     public String requestId() {
+        return requestIdFrom(headers);
+    }
+
+    /**
+     * Convert OkHttp {@link Headers} to an unmodifiable map (first value per name).
+     */
+    public static Map<String, String> headersAsMap(Headers headers) {
+        if (headers == null || headers.size() == 0) {
+            return Collections.emptyMap();
+        }
+        Map<String, String> map = new LinkedHashMap<>();
+        for (String name : headers.names()) {
+            map.put(name, headers.get(name));
+        }
+        return Collections.unmodifiableMap(map);
+    }
+
+    /**
+     * Prefers {@code X-Request-ID}; if absent, falls back to {@code x-fc-request-id}.
+     */
+    public static String requestIdFrom(Headers headers) {
+        if (headers == null) {
+            return null;
+        }
         String requestId = headers.get("X-Request-ID");
         if (requestId == null || requestId.isEmpty()) {
             requestId = headers.get("x-fc-request-id");

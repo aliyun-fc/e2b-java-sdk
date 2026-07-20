@@ -24,6 +24,8 @@ import java.util.concurrent.TimeUnit;
  */
 public final class Template {
 
+    private static final String HEADER_NEXT_TOKEN = "x-next-token";
+
     private Template() {
     }
 
@@ -58,6 +60,7 @@ public final class Template {
                 "/templates/" + encode(templateId), params, TemplateWithBuilds.class);
         return GetTemplateOutput.builder()
                 .template(response.getBody())
+                .nextToken(response.header(HEADER_NEXT_TOKEN))
                 .requestId(response.requestId())
                 .headers(response.headersAsMap())
                 .build();
