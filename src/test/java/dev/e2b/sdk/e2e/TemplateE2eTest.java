@@ -16,14 +16,14 @@ class TemplateE2eTest extends E2eTestBase {
 
     @Test
     void listAndGetTemplate() {
-        List<TemplateInfo> templates = Template.list(config.toConnectionConfig());
+        List<TemplateInfo> templates = Template.list(config.toConnectionConfig()).getTemplates();
         assertNotNull(templates);
         assertFalse(templates.isEmpty(), "template list should not be empty");
         for (TemplateInfo t : templates) {
             assertNotNull(t.getTemplateId(), "every listed template must carry a templateID");
         }
 
-        TemplateWithBuilds template = Template.get(config.getTemplate(), config.toConnectionConfig());
+        TemplateWithBuilds template = Template.get(config.getTemplate(), config.toConnectionConfig()).getTemplate();
         assertNotNull(template.getTemplateId());
         assertFalse(template.getTemplateId().trim().isEmpty());
         assertNotNull(template.getBuilds());

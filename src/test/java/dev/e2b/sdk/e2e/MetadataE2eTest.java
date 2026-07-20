@@ -36,8 +36,8 @@ class MetadataE2eTest extends E2eTestBase {
                 config.toConnectionConfig(),
                 NewSandbox.builder().timeout(300).metadata(metadataB).build());
         try {
-            SandboxInfo infoA = sandboxA.getInfo();
-            SandboxInfo infoB = sandboxB.getInfo();
+            SandboxInfo infoA = sandboxA.getInfo().getSandbox();
+            SandboxInfo infoB = sandboxB.getInfo().getSandbox();
 
             assertNotNull(infoA.getMetadata());
             assertNotNull(infoB.getMetadata());

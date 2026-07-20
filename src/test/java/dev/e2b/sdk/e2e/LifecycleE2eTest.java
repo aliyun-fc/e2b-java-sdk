@@ -37,20 +37,20 @@ class LifecycleE2eTest extends E2eTestBase {
             assertEquals(0, ready.getExitCode());
             assertEquals("lifecycle-ok\n", ready.getStdout());
 
-            SandboxInfo before = sandbox.getInfo();
+            SandboxInfo before = sandbox.getInfo().getSandbox();
             assertEquals(sandboxId, before.getSandboxId());
 
             // Extend the TTL; if the gateway reports endAt we assert it advances.
             Instant endBefore = before.getEndAt();
             sandbox.setTimeout(600);
-            SandboxInfo after = sandbox.getInfo();
+            SandboxInfo after = sandbox.getInfo().getSandbox();
             if (endBefore != null && after.getEndAt() != null) {
                 assertFalse(after.getEndAt().isBefore(endBefore),
                         "setTimeout should not move endAt earlier");
             }
 
             // auto-pause means a paused sandbox survives and can be resumed by connect.
-            assumeTrue(sandbox.pause(), "auto-pause not honored by this environment; skipping resume check");
+            assumeTrue(sandbox.pause() != null, "auto-pause not honored by this environment; skipping resume check");
             Sandbox resumed = Sandbox.connect(sandboxId, config.toConnectionConfig());
             try {
                 CommandResult back = resumed.getCommands().run("echo resumed");

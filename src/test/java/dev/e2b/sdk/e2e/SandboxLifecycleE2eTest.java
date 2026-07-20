@@ -2,6 +2,8 @@ package dev.e2b.sdk.e2e;
 
 import dev.e2b.sdk.Sandbox;
 import dev.e2b.sdk.model.NewSandbox;
+import dev.e2b.sdk.model.GetSandboxOutput;
+import dev.e2b.sdk.model.ListSandboxesOutput;
 import dev.e2b.sdk.model.SandboxInfo;
 import dev.e2b.sdk.model.SandboxMetrics;
 import dev.e2b.sdk.model.SandboxQuery;
@@ -27,10 +29,12 @@ class SandboxLifecycleE2eTest extends E2eTestBase {
         try {
             assertTrue(sandbox.isRunning());
 
-            SandboxInfo info = sandbox.getInfo();
+            GetSandboxOutput output = sandbox.getInfo();
+            SandboxInfo info = output.getSandbox();
             assertEquals(sandbox.getSandboxId(), info.getSandboxId());
             assertNotNull(info.getState());
             assertEquals(SandboxState.RUNNING, info.getState());
+            assertNotNull(output.getRequestId());
 
             Map<String, String> metadataFilter = new HashMap<String, String>();
             metadataFilter.put("e2e.lifecycle", "list-test-" + sandbox.getSandboxId());
@@ -49,8 +53,8 @@ class SandboxLifecycleE2eTest extends E2eTestBase {
                 // (statesync IndexLagTolerance ~5s), so poll a few times before asserting.
                 boolean found = false;
                 for (int attempt = 0; attempt < 6 && !found; attempt++) {
-                    List<SandboxInfo> page = Sandbox.list(config.toConnectionConfig(), query, 50, null);
-                    found = page.stream().anyMatch(item -> listed.getSandboxId().equals(item.getSandboxId()));
+                    ListSandboxesOutput page = Sandbox.list(config.toConnectionConfig(), query, 50, null);
+                    found = page.getSandboxes().stream().anyMatch(item -> listed.getSandboxId().equals(item.getSandboxId()));
                     if (!found) {
                         E2eSupport.sleepMillis(2000);
                     }
@@ -68,16 +72,16 @@ class SandboxLifecycleE2eTest extends E2eTestBase {
     void setTimeoutUpdatesEndAt() {
         Sandbox sandbox = E2eSupport.createSandbox(config);
         try {
-            Instant before = sandbox.getInfo().getEndAt();
+            Instant before = sandbox.getInfo().getSandbox().getEndAt();
             assertNotNull(before);
 
             sandbox.setTimeout(600);
-            Instant after = sandbox.getInfo().getEndAt();
+            Instant after = sandbox.getInfo().getSandbox().getEndAt();
             assertNotNull(after);
             assertTrue(after.isAfter(before), "end_at should move forward after setTimeout(600)");
 
             Sandbox.setTimeout(sandbox.getSandboxId(), 900, config.toConnectionConfig());
-            Instant afterStatic = sandbox.getInfo().getEndAt();
+            Instant afterStatic = sandbox.getInfo().getSandbox().getEndAt();
             assertTrue(afterStatic.isAfter(after), "static setTimeout should extend end_at again");
         } finally {
             E2eSupport.killQuietly(sandbox);
@@ -89,11 +93,11 @@ class SandboxLifecycleE2eTest extends E2eTestBase {
         Sandbox sandbox = E2eSupport.createSandbox(config);
         try {
             sandbox.getCommands().run("echo metrics-smoke");
-            List<SandboxMetrics> metrics = sandbox.getMetrics();
+            List<SandboxMetrics> metrics = sandbox.getMetrics().getMetrics();
             assertNotNull(metrics);
 
             Instant now = Instant.now();
-            List<SandboxMetrics> ranged = sandbox.getMetrics(now.minusSeconds(300), now.plusSeconds(60));
+            List<SandboxMetrics> ranged = sandbox.getMetrics(now.minusSeconds(300), now.plusSeconds(60)).getMetrics();
             assertNotNull(ranged);
         } finally {
             E2eSupport.killQuietly(sandbox);
@@ -153,7 +157,7 @@ class SandboxLifecycleE2eTest extends E2eTestBase {
     void staticKillById() {
         Sandbox sandbox = E2eSupport.createSandbox(config);
         String sandboxId = sandbox.getSandboxId();
-        assertTrue(Sandbox.kill(sandboxId, config.toConnectionConfig()));
+        assertTrue(Sandbox.kill(sandboxId, config.toConnectionConfig()).isKilled());
     }
 
     private static final class SandboxExceptionHolder {
