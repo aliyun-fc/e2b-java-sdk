@@ -41,11 +41,15 @@ class TemplateTest {
                 .setBody("[{\"templateID\":\"tpl-1\",\"buildID\":\"b-1\",\"cpuCount\":2,"
                         + "\"memoryMB\":2048,\"diskSizeMB\":512,\"public\":false,"
                         + "\"aliases\":[\"base\"],\"names\":[\"base\"],\"buildStatus\":\"ready\"}]")
-                .setHeader("Content-Type", "application/json"));
+                .setHeader("Content-Type", "application/json")
+                .setHeader("X-Request-ID", "req-tpl-list-1"));
 
-        List<TemplateInfo> templates = Template.list(config);
+        ListTemplatesOutput output = Template.list(config);
+        List<TemplateInfo> templates = output.getTemplates();
         assertEquals(1, templates.size());
         assertEquals("tpl-1", templates.get(0).getTemplateId());
+        assertEquals("req-tpl-list-1", output.getRequestId());
+        assertEquals("req-tpl-list-1", output.getHeaders().get("X-Request-ID"));
     }
 
     @Test
@@ -55,7 +59,7 @@ class TemplateTest {
                         + "\"builds\":[{\"buildID\":\"b-1\",\"status\":\"ready\",\"cpuCount\":2,\"memoryMB\":2048}]}")
                 .setHeader("Content-Type", "application/json"));
 
-        TemplateWithBuilds template = Template.get("base", config);
+        TemplateWithBuilds template = Template.get("base", config).getTemplate();
         assertEquals("tpl-1", template.getTemplateId());
         assertEquals(1, template.getBuilds().size());
     }
@@ -72,7 +76,7 @@ class TemplateTest {
 
         TemplateLegacy created = Template.create(
                 TemplateBuildRequestV2.builder().alias("my-template").cpuCount(2).memoryMb(2048).build(),
-                config);
+                config).getTemplate();
         assertEquals("tpl-new", created.getTemplateId());
         assertEquals("b-new", created.getBuildId());
 
@@ -104,8 +108,8 @@ class TemplateTest {
                 .setHeader("Content-Type", "application/json"));
         server.enqueue(new MockResponse().setResponseCode(204));
 
-        TemplateUpdateResponse updated = Template.setPublic("tpl-1", true, config);
+        TemplateUpdateResponse updated = Template.setPublic("tpl-1", true, config).getResponse();
         assertEquals(Collections.singletonList("base"), updated.getNames());
-        assertTrue(Template.delete("tpl-1", config));
+        assertTrue(Template.delete("tpl-1", config).isDeleted());
     }
 }
