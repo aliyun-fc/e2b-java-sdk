@@ -87,54 +87,77 @@ public class E2bApiClient {
     // -------------------------------------------------------------------------
 
     public <T> T get(String path, Class<T> responseType) {
-        Request req = baseRequest(path).get().build();
-        return execute(req, responseType);
+        return getWithResponse(path, null, responseType).getBody();
     }
 
     public <T> T get(String path, Map<String, String> queryParams, Class<T> responseType) {
+        return getWithResponse(path, queryParams, responseType).getBody();
+    }
+
+    public <T> ApiResponse<T> getWithResponse(String path, Map<String, String> queryParams, Class<T> responseType) {
         HttpUrl.Builder urlBuilder = HttpUrl.parse(config.resolvedApiUrl() + path).newBuilder();
         if (queryParams != null) {
             queryParams.forEach(urlBuilder::addQueryParameter);
         }
         Request req = baseRequestForUrl(urlBuilder.build()).get().build();
-        return execute(req, responseType);
+        return executeWithResponse(req, responseType);
     }
 
     public <T> T post(String path, Object body, Class<T> responseType) {
+        return postWithResponse(path, body, responseType).getBody();
+    }
+
+    public <T> ApiResponse<T> postWithResponse(String path, Object body, Class<T> responseType) {
         String json = serialize(body);
         RequestBody reqBody = RequestBody.create(json, JSON_MEDIA);
         Request req = baseRequest(path).post(reqBody).build();
-        return execute(req, responseType);
+        return executeWithResponse(req, responseType);
     }
 
     public <T> T post(String path, Class<T> responseType) {
+        return postWithResponse(path, responseType).getBody();
+    }
+
+    public <T> ApiResponse<T> postWithResponse(String path, Class<T> responseType) {
         RequestBody reqBody = RequestBody.create(new byte[0]);
         Request req = baseRequest(path).post(reqBody).build();
-        return execute(req, responseType);
+        return executeWithResponse(req, responseType);
     }
 
     public boolean delete(String path) {
+        return deleteWithResponse(path).getBody();
+    }
+
+    public ApiResponse<Boolean> deleteWithResponse(String path) {
         Request req = baseRequest(path).delete().build();
         try (Response resp = http.newCall(req).execute()) {
             handleErrors(resp);
-            return resp.isSuccessful();
+            return new ApiResponse<>(resp.isSuccessful(), resp.headers());
         } catch (IOException e) {
             throw new SandboxException("HTTP delete failed: " + path, e);
         }
     }
 
     public <T> T put(String path, Object body, Class<T> responseType) {
+        return putWithResponse(path, body, responseType).getBody();
+    }
+
+    public <T> ApiResponse<T> putWithResponse(String path, Object body, Class<T> responseType) {
         String json = serialize(body);
         RequestBody reqBody = RequestBody.create(json, JSON_MEDIA);
         Request req = baseRequest(path).put(reqBody).build();
-        return execute(req, responseType);
+        return executeWithResponse(req, responseType);
     }
 
     public <T> T patch(String path, Object body, Class<T> responseType) {
+        return patchWithResponse(path, body, responseType).getBody();
+    }
+
+    public <T> ApiResponse<T> patchWithResponse(String path, Object body, Class<T> responseType) {
         String json = serialize(body);
         RequestBody reqBody = RequestBody.create(json, JSON_MEDIA);
         Request req = baseRequest(path).patch(reqBody).build();
-        return execute(req, responseType);
+        return executeWithResponse(req, responseType);
     }
 
     // -------------------------------------------------------------------------
@@ -173,23 +196,31 @@ public class E2bApiClient {
     // -------------------------------------------------------------------------
 
     private <T> T execute(Request req, Class<T> type) {
+        return executeWithResponse(req, type).getBody();
+    }
+
+    private <T> ApiResponse<T> executeWithResponse(Request req, Class<T> type) {
         if (config.isDebug()) {
             log.debug("→ {} {}", req.method(), req.url());
         }
         try (Response resp = http.newCall(req).execute()) {
             handleErrors(resp);
+            Headers headers = resp.headers();
             if (type == Void.class || type == null) {
-                return null;
+                return new ApiResponse<>(null, headers);
             }
             ResponseBody body = resp.body();
             if (body == null) {
-                return null;
+                return new ApiResponse<>(null, headers);
             }
             String json = body.string();
             if (config.isDebug()) {
                 log.debug("← {} {}", resp.code(), json);
             }
-            return mapper.readValue(json, type);
+            if (json.isEmpty()) {
+                return new ApiResponse<>(null, headers);
+            }
+            return new ApiResponse<>(mapper.readValue(json, type), headers);
         } catch (IOException e) {
             throw new SandboxException("HTTP request failed", e);
         }

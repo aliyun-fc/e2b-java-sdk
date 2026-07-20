@@ -89,6 +89,27 @@ class SandboxTest {
     }
 
     // -------------------------------------------------------------------------
+    // Sandbox.getInfo
+    // -------------------------------------------------------------------------
+
+    @Test
+    void getInfo_returnsSandboxAndRequestId() {
+        server.enqueue(new MockResponse()
+                .setBody("{\"sandboxID\":\"sbx-1\",\"templateID\":\"base\",\"state\":\"running\","
+                        + "\"cpuCount\":2,\"memoryMB\":512,\"envdVersion\":\"0.1.0\",\"clientID\":\"c-1\","
+                        + "\"startedAt\":\"2024-01-01T00:00:00Z\",\"endAt\":\"2024-01-01T00:05:00Z\"}")
+                .setHeader("Content-Type", "application/json")
+                .setHeader("X-Request-ID", "req-get-1"));
+
+        GetSandboxOutput output = Sandbox.getInfo("sbx-1", config);
+        assertEquals("sbx-1", output.getSandbox().getSandboxId());
+        assertEquals(SandboxState.RUNNING, output.getSandbox().getState());
+        assertEquals("req-get-1", output.getRequestId());
+        assertEquals("req-get-1", output.getHeaders().get("X-Request-ID"));
+        assertEquals("application/json", output.getHeaders().get("Content-Type"));
+    }
+
+    // -------------------------------------------------------------------------
     // Sandbox.list
     // -------------------------------------------------------------------------
 
@@ -101,12 +122,19 @@ class SandboxTest {
                         + "{\"sandboxID\":\"sbx-2\",\"templateID\":\"python\",\"state\":\"paused\","
                         + "\"cpuCount\":4,\"memoryMB\":1024,\"envdVersion\":\"0.1.0\",\"clientID\":\"c-2\","
                         + "\"startedAt\":\"2024-01-01T00:00:00Z\",\"endAt\":\"2024-01-01T00:05:00Z\"}]")
-                .setHeader("Content-Type", "application/json"));
+                .setHeader("Content-Type", "application/json")
+                .setHeader("x-next-token", "token-2")
+                .setHeader("X-Request-ID", "req-abc"));
 
-        List<SandboxInfo> sandboxes = Sandbox.list(config);
+        ListSandboxesOutput output = Sandbox.list(config);
+        List<SandboxInfo> sandboxes = output.getSandboxes();
         assertEquals(2, sandboxes.size());
         assertEquals("sbx-1",            sandboxes.get(0).getSandboxId());
         assertEquals(SandboxState.PAUSED, sandboxes.get(1).getState());
+        assertEquals("token-2", output.getNextToken());
+        assertEquals("req-abc", output.getRequestId());
+        assertEquals("req-abc", output.getHeaders().get("X-Request-ID"));
+        assertEquals("token-2", output.getHeaders().get("x-next-token"));
     }
 
     // -------------------------------------------------------------------------
@@ -119,7 +147,7 @@ class SandboxTest {
                 .setBody("[{\"snapshotID\":\"snap-1\",\"sandboxID\":\"sbx-1\",\"names\":[\"a\",\"b\"]}]")
                 .setHeader("Content-Type", "application/json"));
 
-        List<SnapshotInfo> snapshots = Sandbox.listSnapshots(config, "sbx-1", 50, null);
+        List<SnapshotInfo> snapshots = Sandbox.listSnapshots(config, "sbx-1", 50, null).getSnapshots();
 
         assertEquals(1, snapshots.size());
         assertEquals("snap-1", snapshots.get(0).getSnapshotId());
@@ -139,10 +167,14 @@ class SandboxTest {
 
     @Test
     void kill_byId_returnsTrue() {
-        server.enqueue(new MockResponse().setResponseCode(200));
+        server.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setHeader("X-Request-ID", "req-kill-1"));
 
-        boolean result = Sandbox.kill("sbx-abc", config);
-        assertTrue(result);
+        KillSandboxOutput result = Sandbox.kill("sbx-abc", config);
+        assertTrue(result.isKilled());
+        assertEquals("req-kill-1", result.getRequestId());
+        assertEquals("req-kill-1", result.getHeaders().get("X-Request-ID"));
     }
 
     // -------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 package dev.e2b.sdk;
 
+import dev.e2b.sdk.client.ApiResponse;
 import dev.e2b.sdk.client.ConnectionConfig;
 import dev.e2b.sdk.client.E2bApiClient;
 import dev.e2b.sdk.exception.TemplateException;
@@ -24,20 +25,25 @@ public final class Template {
     private Template() {
     }
 
-    public static List<TemplateInfo> list(ConnectionConfig config) {
+    public static ListTemplatesOutput list(ConnectionConfig config) {
         E2bApiClient api = new E2bApiClient(config);
-        TemplateInfo[] arr = api.get("/templates", TemplateInfo[].class);
-        return arr != null ? Arrays.asList(arr) : Collections.emptyList();
+        ApiResponse<TemplateInfo[]> response = api.getWithResponse("/templates", null, TemplateInfo[].class);
+        TemplateInfo[] arr = response.getBody();
+        return ListTemplatesOutput.builder()
+                .templates(arr != null ? Arrays.asList(arr) : Collections.emptyList())
+                .requestId(response.requestId())
+                .headers(response.headersAsMap())
+                .build();
     }
 
-    public static TemplateWithBuilds get(String templateId, ConnectionConfig config) {
+    public static GetTemplateOutput get(String templateId, ConnectionConfig config) {
         return get(templateId, config, null, null);
     }
 
-    public static TemplateWithBuilds get(String templateId,
-                                         ConnectionConfig config,
-                                         Integer limit,
-                                         String nextToken) {
+    public static GetTemplateOutput get(String templateId,
+                                        ConnectionConfig config,
+                                        Integer limit,
+                                        String nextToken) {
         E2bApiClient api = new E2bApiClient(config);
         Map<String, String> params = new HashMap<String, String>();
         if (limit != null) {
@@ -46,7 +52,13 @@ public final class Template {
         if (nextToken != null) {
             params.put("nextToken", nextToken);
         }
-        return api.get("/templates/" + encode(templateId), params, TemplateWithBuilds.class);
+        ApiResponse<TemplateWithBuilds> response = api.getWithResponse(
+                "/templates/" + encode(templateId), params, TemplateWithBuilds.class);
+        return GetTemplateOutput.builder()
+                .template(response.getBody())
+                .requestId(response.requestId())
+                .headers(response.headersAsMap())
+                .build();
     }
 
     /**
@@ -56,56 +68,83 @@ public final class Template {
      * both of which use the current {@code /v3/templates} path.
      */
     @Deprecated
-    public static TemplateLegacy create(TemplateBuildRequestV2 request, ConnectionConfig config) {
+    public static CreateTemplateOutput create(TemplateBuildRequestV2 request, ConnectionConfig config) {
         E2bApiClient api = new E2bApiClient(config);
-        return api.post("/v2/templates", request, TemplateLegacy.class);
+        ApiResponse<TemplateLegacy> response = api.postWithResponse("/v2/templates", request, TemplateLegacy.class);
+        return CreateTemplateOutput.builder()
+                .template(response.getBody())
+                .requestId(response.requestId())
+                .headers(response.headersAsMap())
+                .build();
     }
 
-    public static TemplateRequestResponseV3 createV3(TemplateBuildRequestV3 request, ConnectionConfig config) {
+    public static CreateTemplateV3Output createV3(TemplateBuildRequestV3 request, ConnectionConfig config) {
         E2bApiClient api = new E2bApiClient(config);
-        return api.post("/v3/templates", request, TemplateRequestResponseV3.class);
+        ApiResponse<TemplateRequestResponseV3> response = api.postWithResponse(
+                "/v3/templates", request, TemplateRequestResponseV3.class);
+        return CreateTemplateV3Output.builder()
+                .template(response.getBody())
+                .requestId(response.requestId())
+                .headers(response.headersAsMap())
+                .build();
     }
 
-    public static TemplateUpdateResponse update(String templateId,
-                                                TemplateUpdateRequest request,
-                                                ConnectionConfig config) {
+    public static UpdateTemplateOutput update(String templateId,
+                                              TemplateUpdateRequest request,
+                                              ConnectionConfig config) {
         E2bApiClient api = new E2bApiClient(config);
         // Canonical update path is PATCH /templates/{id} (no /v2), matching the e2b control plane.
-        return api.patch("/templates/" + encode(templateId), request, TemplateUpdateResponse.class);
+        ApiResponse<TemplateUpdateResponse> response = api.patchWithResponse(
+                "/templates/" + encode(templateId), request, TemplateUpdateResponse.class);
+        return UpdateTemplateOutput.builder()
+                .response(response.getBody())
+                .requestId(response.requestId())
+                .headers(response.headersAsMap())
+                .build();
     }
 
-    public static TemplateUpdateResponse setPublic(String templateId, boolean isPublic, ConnectionConfig config) {
+    public static UpdateTemplateOutput setPublic(String templateId, boolean isPublic, ConnectionConfig config) {
         return update(templateId,
                 TemplateUpdateRequest.builder().value(isPublic).build(),
                 config);
     }
 
-    public static boolean delete(String templateId, ConnectionConfig config) {
-        return new E2bApiClient(config).delete("/templates/" + encode(templateId));
+    public static DeleteTemplateOutput delete(String templateId, ConnectionConfig config) {
+        ApiResponse<Boolean> response = new E2bApiClient(config)
+                .deleteWithResponse("/templates/" + encode(templateId));
+        return DeleteTemplateOutput.builder()
+                .deleted(Boolean.TRUE.equals(response.getBody()))
+                .requestId(response.requestId())
+                .headers(response.headersAsMap())
+                .build();
     }
 
-    public static void startBuild(String templateId,
-                                  String buildId,
-                                  TemplateBuildStartV2 request,
-                                  ConnectionConfig config) {
-        new E2bApiClient(config).post(
+    public static StartTemplateBuildOutput startBuild(String templateId,
+                                                      String buildId,
+                                                      TemplateBuildStartV2 request,
+                                                      ConnectionConfig config) {
+        ApiResponse<Void> response = new E2bApiClient(config).postWithResponse(
                 "/v2/templates/" + encode(templateId) + "/builds/" + encode(buildId),
                 request,
                 Void.class);
+        return StartTemplateBuildOutput.builder()
+                .requestId(response.requestId())
+                .headers(response.headersAsMap())
+                .build();
     }
 
-    public static TemplateBuildInfo getBuildStatus(String templateId,
-                                                     String buildId,
-                                                     ConnectionConfig config) {
+    public static GetTemplateBuildStatusOutput getBuildStatus(String templateId,
+                                                              String buildId,
+                                                              ConnectionConfig config) {
         return getBuildStatus(templateId, buildId, config, null, null, null);
     }
 
-    public static TemplateBuildInfo getBuildStatus(String templateId,
-                                                     String buildId,
-                                                     ConnectionConfig config,
-                                                     Integer logsOffset,
-                                                     Integer limit,
-                                                     String level) {
+    public static GetTemplateBuildStatusOutput getBuildStatus(String templateId,
+                                                              String buildId,
+                                                              ConnectionConfig config,
+                                                              Integer logsOffset,
+                                                              Integer limit,
+                                                              String level) {
         E2bApiClient api = new E2bApiClient(config);
         Map<String, String> params = new HashMap<String, String>();
         if (logsOffset != null) {
@@ -117,18 +156,23 @@ public final class Template {
         if (level != null) {
             params.put("level", level);
         }
-        return api.get(
+        ApiResponse<TemplateBuildInfo> response = api.getWithResponse(
                 "/templates/" + encode(templateId) + "/builds/" + encode(buildId) + "/status",
                 params,
                 TemplateBuildInfo.class);
+        return GetTemplateBuildStatusOutput.builder()
+                .buildInfo(response.getBody())
+                .requestId(response.requestId())
+                .headers(response.headersAsMap())
+                .build();
     }
 
-    public static TemplateBuildLogsResponse getBuildLogs(String templateId,
-                                                         String buildId,
-                                                         ConnectionConfig config,
-                                                         Integer logsOffset,
-                                                         Integer limit,
-                                                         String level) {
+    public static GetTemplateBuildLogsOutput getBuildLogs(String templateId,
+                                                          String buildId,
+                                                          ConnectionConfig config,
+                                                          Integer logsOffset,
+                                                          Integer limit,
+                                                          String level) {
         E2bApiClient api = new E2bApiClient(config);
         Map<String, String> params = new HashMap<String, String>();
         if (logsOffset != null) {
@@ -140,10 +184,15 @@ public final class Template {
         if (level != null) {
             params.put("level", level);
         }
-        return api.get(
+        ApiResponse<TemplateBuildLogsResponse> response = api.getWithResponse(
                 "/templates/" + encode(templateId) + "/builds/" + encode(buildId) + "/logs",
                 params,
                 TemplateBuildLogsResponse.class);
+        return GetTemplateBuildLogsOutput.builder()
+                .logs(response.getBody())
+                .requestId(response.requestId())
+                .headers(response.headersAsMap())
+                .build();
     }
 
     /**
@@ -160,8 +209,8 @@ public final class Template {
                 .cpuCount(2)
                 .memoryMb(2048)
                 .build();
-        TemplateRequestResponseV3 created = createV3(createReq, config);
-        if (created.getTemplateId() == null || created.getBuildId() == null) {
+        TemplateRequestResponseV3 created = createV3(createReq, config).getTemplate();
+        if (created == null || created.getTemplateId() == null || created.getBuildId() == null) {
             throw new TemplateException("Template create did not return templateID/buildID");
         }
 
@@ -173,9 +222,9 @@ public final class Template {
         long deadline = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(timeoutSeconds);
         while (System.currentTimeMillis() < deadline) {
             TemplateBuildInfo status = getBuildStatus(
-                    created.getTemplateId(), created.getBuildId(), config);
+                    created.getTemplateId(), created.getBuildId(), config).getBuildInfo();
             if (status.getStatus() == TemplateBuildStatus.READY) {
-                return get(created.getTemplateId(), config);
+                return get(created.getTemplateId(), config).getTemplate();
             }
             if (status.getStatus() == TemplateBuildStatus.ERROR) {
                 throw new TemplateException("Template build failed for " + alias);
