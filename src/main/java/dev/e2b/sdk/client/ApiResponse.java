@@ -49,8 +49,16 @@ public final class ApiResponse<T> {
         return headers.get(name);
     }
 
-    /** Request identifier from response header {@code X-Request-ID}, or null. */
+    /**
+     * Request identifier from response headers.
+     * Prefers {@code X-Request-ID}; if absent, falls back to {@code x-fc-request-id}.
+     * Returns null when neither is present.
+     */
     public String requestId() {
-        return headers.get("X-Request-ID");
+        String requestId = headers.get("X-Request-ID");
+        if (requestId == null || requestId.isEmpty()) {
+            requestId = headers.get("x-fc-request-id");
+        }
+        return (requestId == null || requestId.isEmpty()) ? null : requestId;
     }
 }

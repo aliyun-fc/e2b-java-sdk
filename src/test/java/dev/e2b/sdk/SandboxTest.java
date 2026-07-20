@@ -109,6 +109,20 @@ class SandboxTest {
         assertEquals("application/json", output.getHeaders().get("Content-Type"));
     }
 
+    @Test
+    void getInfo_fallsBackToFcRequestId() {
+        server.enqueue(new MockResponse()
+                .setBody("{\"sandboxID\":\"sbx-1\",\"templateID\":\"base\",\"state\":\"running\","
+                        + "\"cpuCount\":2,\"memoryMB\":512,\"envdVersion\":\"0.1.0\",\"clientID\":\"c-1\","
+                        + "\"startedAt\":\"2024-01-01T00:00:00Z\",\"endAt\":\"2024-01-01T00:05:00Z\"}")
+                .setHeader("Content-Type", "application/json")
+                .setHeader("x-fc-request-id", "fc-req-get-1"));
+
+        GetSandboxOutput output = Sandbox.getInfo("sbx-1", config);
+        assertEquals("fc-req-get-1", output.getRequestId());
+        assertEquals("fc-req-get-1", output.getHeaders().get("x-fc-request-id"));
+    }
+
     // -------------------------------------------------------------------------
     // Sandbox.list
     // -------------------------------------------------------------------------

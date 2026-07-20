@@ -25,7 +25,7 @@ public class ListSandboxesOutput {
     /** Pagination cursor for the next page, from response header {@code x-next-token}. */
     private String nextToken;
 
-    /** Request identifier from response header {@code X-Request-ID}. */
+    /** Request identifier from {@code X-Request-ID}, or {@code x-fc-request-id} if absent. */
     private String requestId;
 
     /** Full HTTP response headers (first value per name). */
