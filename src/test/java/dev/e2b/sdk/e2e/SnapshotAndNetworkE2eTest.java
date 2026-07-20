@@ -27,7 +27,7 @@ class SnapshotAndNetworkE2eTest extends E2eTestBase {
         Sandbox sandbox = E2eSupport.createSandbox(config);
         try {
             String snapshotName = "java-e2e-" + UUID.randomUUID();
-            SnapshotInfo snapshot = sandbox.createSnapshot(snapshotName);
+            SnapshotInfo snapshot = sandbox.createSnapshot(snapshotName).getSnapshot();
             assertNotNull(snapshot);
             assertNotNull(snapshot.getSnapshotId());
             assertFalse(snapshot.getSnapshotId().isEmpty());

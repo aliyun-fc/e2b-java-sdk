@@ -19,7 +19,7 @@ class PauseResumeE2eTest extends E2eTestBase {
             String testContent = "Hello from " + sandboxId + "\n";
             sandbox.getFiles().write("/tmp/pause-test.txt", testContent);
 
-            assertTrue(sandbox.pause());
+            assertNotNull(sandbox.pause());
 
             Sandbox resumed = Sandbox.connect(sandboxId, config.toConnectionConfig());
             try {

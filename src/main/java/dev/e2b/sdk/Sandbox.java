@@ -1,8 +1,10 @@
 package dev.e2b.sdk;
 
+import dev.e2b.sdk.client.ApiResponse;
 import dev.e2b.sdk.client.ConnectionConfig;
 import dev.e2b.sdk.client.E2bApiClient;
 import dev.e2b.sdk.exception.SandboxException;
+import dev.e2b.sdk.exception.SandboxNotFoundException;
 import dev.e2b.sdk.model.*;
 import dev.e2b.sdk.sandbox.Commands;
 import dev.e2b.sdk.sandbox.Filesystem;
@@ -54,12 +56,21 @@ public class Sandbox implements AutoCloseable {
 
     private final String envdAccessToken;
 
+    /**
+     * Request identifier ({@code X-Request-ID} or {@code x-fc-request-id}) of the create/connect
+     * API call that produced this instance.
+     */
+    private final String requestId;
+
+    /** Full HTTP response headers from the create/connect API call that produced this instance. */
+    private final Map<String, String> headers;
+
     // -------------------------------------------------------------------------
     // Constructors (private — use static factory methods)
     // -------------------------------------------------------------------------
 
     private Sandbox(SandboxInfo info, ConnectionConfig config, E2bApiClient apiClient,
-                    String accessToken) {
+                    String accessToken, String requestId, Map<String, String> headers) {
         this.sandboxId          = info.getSandboxId();
         // The create/connect responses carry `domain` only when the gateway overrides it
         // (it is nullable/omitempty); otherwise fall back to the configured E2B_DOMAIN,
@@ -70,6 +81,10 @@ public class Sandbox implements AutoCloseable {
         this.connectionConfig   = config;
         this.apiClient          = apiClient;
         this.envdAccessToken    = accessToken;
+        this.requestId          = requestId;
+        this.headers            = headers == null || headers.isEmpty()
+                ? Collections.emptyMap()
+                : Collections.unmodifiableMap(new LinkedHashMap<>(headers));
 
         String envdUrl = config.getSandboxUrl(sandboxId, sandboxDomain);
         this.commands = new Commands(apiClient, envdUrl, accessToken);
@@ -87,7 +102,8 @@ public class Sandbox implements AutoCloseable {
      * @param template Template ID or name (e.g. "base", "python")
      * @param config   Connection configuration
      * @param opts     Additional creation options (timeout, metadata, envs, …)
-     * @return Running Sandbox instance
+     * @return Running Sandbox instance; the create call's request id and headers are available via
+     *         {@link #getRequestId()} and {@link #getHeaders()}
      */
     public static Sandbox create(String template, ConnectionConfig config, NewSandbox opts) {
         E2bApiClient api = new E2bApiClient(config);
@@ -99,8 +115,10 @@ public class Sandbox implements AutoCloseable {
             body = copyWithEnvVars(body, EnvVars.normalize(body.getEnvVars()));
         }
 
-        SandboxInfo info = api.post("/sandboxes", body, SandboxInfo.class);
-        return new Sandbox(info, config, api, info.getEnvdAccessToken());
+        ApiResponse<SandboxInfo> response = api.postWithResponse("/sandboxes", body, SandboxInfo.class);
+        SandboxInfo info = response.getBody();
+        return new Sandbox(info, config, api, info.getEnvdAccessToken(),
+                response.requestId(), response.headersAsMap());
     }
 
     public static Sandbox create(ConnectionConfig config) {
@@ -140,16 +158,25 @@ public class Sandbox implements AutoCloseable {
         Object body = timeoutSeconds != null
                 ? ConnectSandbox.builder().timeout(timeoutSeconds).build()
                 : Collections.emptyMap();
-        SandboxConnectResponse response = api.post(
+        ApiResponse<SandboxConnectResponse> response = api.postWithResponse(
                 "/sandboxes/" + sandboxId + "/connect", body, SandboxConnectResponse.class);
-        return fromConnectResponse(response, config, api);
+        return fromConnectResponse(response.getBody(), config, api,
+                response.requestId(), response.headersAsMap());
     }
 
     /**
      * Get sandbox info by ID without connecting to the data plane.
+     *
+     * @return sandbox details plus {@code requestId} from response headers
      */
-    public static SandboxInfo getInfo(String sandboxId, ConnectionConfig config) {
-        return new E2bApiClient(config).get("/sandboxes/" + sandboxId, SandboxInfo.class);
+    public static GetSandboxOutput getInfo(String sandboxId, ConnectionConfig config) {
+        ApiResponse<SandboxInfo> response = new E2bApiClient(config)
+                .getWithResponse("/sandboxes/" + sandboxId, null, SandboxInfo.class);
+        return GetSandboxOutput.builder()
+                .sandbox(response.getBody())
+                .requestId(response.requestId())
+                .headers(response.headersAsMap())
+                .build();
     }
 
     // -------------------------------------------------------------------------
@@ -159,16 +186,21 @@ public class Sandbox implements AutoCloseable {
     /**
      * Kill (terminate) this sandbox immediately.
      *
-     * @return true if the sandbox was killed successfully
+     * @return kill result plus {@code requestId} from response headers
      */
-    public boolean kill() {
+    public KillSandboxOutput kill() {
         // Cancel any open background-command streams first so their drain threads exit and the
         // underlying connections are released rather than lingering after the sandbox is gone.
         try {
             commands.closeActive();
         } catch (Exception ignored) {
         }
-        return apiClient.delete("/sandboxes/" + sandboxId);
+        ApiResponse<Boolean> response = apiClient.deleteWithResponse("/sandboxes/" + sandboxId);
+        return KillSandboxOutput.builder()
+                .killed(Boolean.TRUE.equals(response.getBody()))
+                .requestId(response.requestId())
+                .headers(response.headersAsMap())
+                .build();
     }
 
     public boolean release() {
@@ -183,28 +215,46 @@ public class Sandbox implements AutoCloseable {
     /**
      * Pause this sandbox (preserves state; can be resumed later).
      *
-     * @return true if paused successfully
+     * @return pause result plus {@code requestId} from response headers
      */
-    public boolean pause() {
-        apiClient.post("/sandboxes/" + sandboxId + "/pause", Void.class);
-        return true;
+    public PauseSandboxOutput pause() {
+        ApiResponse<Void> response = apiClient.postWithResponse(
+                "/sandboxes/" + sandboxId + "/pause", Void.class);
+        return PauseSandboxOutput.builder()
+                .requestId(response.requestId())
+                .headers(response.headersAsMap())
+                .build();
     }
 
     /**
      * Set the sandbox timeout.
      *
      * @param timeoutSeconds New timeout in seconds
+     * @return result plus {@code requestId} from response headers
      */
-    public void setTimeout(int timeoutSeconds) {
-        apiClient.post("/sandboxes/" + sandboxId + "/timeout",
+    public SetSandboxTimeoutOutput setTimeout(int timeoutSeconds) {
+        ApiResponse<Void> response = apiClient.postWithResponse(
+                "/sandboxes/" + sandboxId + "/timeout",
                 Collections.singletonMap("timeout", timeoutSeconds), Void.class);
+        return SetSandboxTimeoutOutput.builder()
+                .requestId(response.requestId())
+                .headers(response.headersAsMap())
+                .build();
     }
 
     /**
      * Get the latest info for this sandbox.
+     *
+     * @return sandbox details plus {@code requestId} from response headers
      */
-    public SandboxInfo getInfo() {
-        return apiClient.get("/sandboxes/" + sandboxId, SandboxInfo.class);
+    public GetSandboxOutput getInfo() {
+        ApiResponse<SandboxInfo> response = apiClient
+                .getWithResponse("/sandboxes/" + sandboxId, null, SandboxInfo.class);
+        return GetSandboxOutput.builder()
+                .sandbox(response.getBody())
+                .requestId(response.requestId())
+                .headers(response.headersAsMap())
+                .build();
     }
 
     /**
@@ -212,54 +262,77 @@ public class Sandbox implements AutoCloseable {
      *
      * @param start Optional start time
      * @param end   Optional end time
+     * @return metrics plus {@code requestId} from response headers
      */
-    public List<SandboxMetrics> getMetrics(Instant start, Instant end) {
+    public GetSandboxMetricsOutput getMetrics(Instant start, Instant end) {
         Map<String, String> params = new HashMap<>();
         if (start != null) params.put("start", String.valueOf(start.getEpochSecond()));
         if (end   != null) params.put("end",   String.valueOf(end.getEpochSecond()));
-        SandboxMetrics[] arr = apiClient.get(
+        ApiResponse<SandboxMetrics[]> response = apiClient.getWithResponse(
                 "/sandboxes/" + sandboxId + "/metrics", params, SandboxMetrics[].class);
-        return arr != null ? Arrays.asList(arr) : Collections.emptyList();
+        SandboxMetrics[] arr = response.getBody();
+        return GetSandboxMetricsOutput.builder()
+                .metrics(arr != null ? Arrays.asList(arr) : Collections.emptyList())
+                .requestId(response.requestId())
+                .headers(response.headersAsMap())
+                .build();
     }
 
-    public List<SandboxMetrics> getMetrics() {
+    public GetSandboxMetricsOutput getMetrics() {
         return getMetrics(null, null);
     }
 
     /**
      * Update network rules for this sandbox.
+     *
+     * @return result plus {@code requestId} from response headers
      */
-    public void updateNetwork(SandboxNetworkUpdate network) {
-        apiClient.put("/sandboxes/" + sandboxId + "/network", network, Void.class);
+    public UpdateSandboxNetworkOutput updateNetwork(SandboxNetworkUpdate network) {
+        ApiResponse<Void> response = apiClient.putWithResponse(
+                "/sandboxes/" + sandboxId + "/network", network, Void.class);
+        return UpdateSandboxNetworkOutput.builder()
+                .requestId(response.requestId())
+                .headers(response.headersAsMap())
+                .build();
     }
 
     /**
      * Create a snapshot of this sandbox.
      *
      * @param name Optional snapshot name
-     * @return SnapshotInfo with the new snapshot ID
+     * @return snapshot details plus {@code requestId} from response headers
      */
-    public SnapshotInfo createSnapshot(String name) {
+    public CreateSnapshotOutput createSnapshot(String name) {
         Map<String, Object> body = new HashMap<>();
         if (name != null) body.put("name", name);
-        return apiClient.post("/sandboxes/" + sandboxId + "/snapshots", body, SnapshotInfo.class);
+        ApiResponse<SnapshotInfo> response = apiClient.postWithResponse(
+                "/sandboxes/" + sandboxId + "/snapshots", body, SnapshotInfo.class);
+        return CreateSnapshotOutput.builder()
+                .snapshot(response.getBody())
+                .requestId(response.requestId())
+                .headers(response.headersAsMap())
+                .build();
     }
 
     /**
      * List snapshots for this sandbox.
      */
-    public List<SnapshotInfo> listSnapshots() {
+    public ListSnapshotsOutput listSnapshots() {
         return listSnapshots(connectionConfig, sandboxId, null, null);
     }
 
     /**
-     * Check whether the sandbox is currently running (live ping).
+     * Check whether the sandbox is currently running (live ping via {@link #getInfo()}).
+     *
+     * <p>{@link SandboxNotFoundException} (HTTP 404) is treated as not running. Other API
+     * failures — including authentication, rate limiting, and 5xx — are rethrown so callers
+     * do not mistake transient or auth errors for a stopped sandbox.
      */
     public boolean isRunning() {
         try {
-            SandboxInfo info = getInfo();
-            return SandboxState.RUNNING.equals(info.getState());
-        } catch (SandboxException e) {
+            SandboxInfo info = getInfo().getSandbox();
+            return info != null && SandboxState.RUNNING.equals(info.getState());
+        } catch (SandboxNotFoundException e) {
             return false;
         }
     }
@@ -300,6 +373,8 @@ public class Sandbox implements AutoCloseable {
     // Static methods: list / snapshot management
     // -------------------------------------------------------------------------
 
+    private static final String HEADER_NEXT_TOKEN = "x-next-token";
+
     /**
      * List all sandboxes visible to the API key.
      *
@@ -307,11 +382,12 @@ public class Sandbox implements AutoCloseable {
      * @param query     Optional filter (metadata / state)
      * @param limit     Page size
      * @param nextToken Pagination cursor from previous page
+     * @return page of sandboxes plus {@code nextToken} / {@code requestId} from response headers
      */
-    public static List<SandboxInfo> list(ConnectionConfig config,
-                                         SandboxQuery query,
-                                         Integer limit,
-                                         String nextToken) {
+    public static ListSandboxesOutput list(ConnectionConfig config,
+                                           SandboxQuery query,
+                                           Integer limit,
+                                           String nextToken) {
         E2bApiClient api = new E2bApiClient(config);
         Map<String, String> params = new HashMap<>();
         if (limit     != null) params.put("limit", String.valueOf(limit));
@@ -334,36 +410,63 @@ public class Sandbox implements AutoCloseable {
                 params.put("state", query.getState().get(0).getValue());
             }
         }
-        SandboxInfo[] arr = api.get("/v2/sandboxes", params, SandboxInfo[].class);
-        return arr != null ? Arrays.asList(arr) : Collections.emptyList();
+        ApiResponse<SandboxInfo[]> response = api.getWithResponse("/v2/sandboxes", params, SandboxInfo[].class);
+        SandboxInfo[] arr = response.getBody();
+        return ListSandboxesOutput.builder()
+                .sandboxes(arr != null ? Arrays.asList(arr) : Collections.emptyList())
+                .nextToken(response.header(HEADER_NEXT_TOKEN))
+                .requestId(response.requestId())
+                .headers(response.headersAsMap())
+                .build();
     }
 
-    public static List<SandboxInfo> list(ConnectionConfig config) {
+    public static ListSandboxesOutput list(ConnectionConfig config) {
         return list(config, null, null, null);
     }
 
     /**
      * Kill a sandbox by ID without instantiating a Sandbox object.
+     *
+     * @return kill result plus {@code requestId} from response headers
      */
-    public static boolean kill(String sandboxId, ConnectionConfig config) {
-        return new E2bApiClient(config).delete("/sandboxes/" + sandboxId);
+    public static KillSandboxOutput kill(String sandboxId, ConnectionConfig config) {
+        ApiResponse<Boolean> response = new E2bApiClient(config)
+                .deleteWithResponse("/sandboxes/" + sandboxId);
+        return KillSandboxOutput.builder()
+                .killed(Boolean.TRUE.equals(response.getBody()))
+                .requestId(response.requestId())
+                .headers(response.headersAsMap())
+                .build();
     }
 
     /**
      * Pause a sandbox by ID.
+     *
+     * @return pause result plus {@code requestId} from response headers
      */
-    public static void pause(String sandboxId, ConnectionConfig config) {
-        new E2bApiClient(config).post("/sandboxes/" + sandboxId + "/pause", Void.class);
+    public static PauseSandboxOutput pause(String sandboxId, ConnectionConfig config) {
+        ApiResponse<Void> response = new E2bApiClient(config)
+                .postWithResponse("/sandboxes/" + sandboxId + "/pause", Void.class);
+        return PauseSandboxOutput.builder()
+                .requestId(response.requestId())
+                .headers(response.headersAsMap())
+                .build();
     }
 
     /**
      * Set sandbox timeout by ID.
+     *
+     * @return result plus {@code requestId} from response headers
      */
-    public static void setTimeout(String sandboxId, int timeoutSeconds, ConnectionConfig config) {
-        new E2bApiClient(config).post(
+    public static SetSandboxTimeoutOutput setTimeout(String sandboxId, int timeoutSeconds, ConnectionConfig config) {
+        ApiResponse<Void> response = new E2bApiClient(config).postWithResponse(
                 "/sandboxes/" + sandboxId + "/timeout",
                 Collections.singletonMap("timeout", timeoutSeconds),
                 Void.class);
+        return SetSandboxTimeoutOutput.builder()
+                .requestId(response.requestId())
+                .headers(response.headersAsMap())
+                .build();
     }
 
     /**
@@ -373,28 +476,44 @@ public class Sandbox implements AutoCloseable {
      * @param sandboxId Optional source sandbox ID filter (null lists all)
      * @param limit     Optional page size
      * @param nextToken Optional pagination cursor
+     * @return snapshots plus {@code nextToken} / {@code requestId} from response headers
      */
-    public static List<SnapshotInfo> listSnapshots(ConnectionConfig config,
-                                                   String sandboxId,
-                                                   Integer limit,
-                                                   String nextToken) {
+    public static ListSnapshotsOutput listSnapshots(ConnectionConfig config,
+                                                    String sandboxId,
+                                                    Integer limit,
+                                                    String nextToken) {
         Map<String, String> params = new HashMap<>();
         if (sandboxId != null) params.put("sandboxID", sandboxId);
         if (limit     != null) params.put("limit", String.valueOf(limit));
         if (nextToken != null) params.put("nextToken", nextToken);
-        SnapshotInfo[] arr = new E2bApiClient(config).get("/snapshots", params, SnapshotInfo[].class);
-        return arr != null ? Arrays.asList(arr) : Collections.emptyList();
+        ApiResponse<SnapshotInfo[]> response = new E2bApiClient(config)
+                .getWithResponse("/snapshots", params, SnapshotInfo[].class);
+        SnapshotInfo[] arr = response.getBody();
+        return ListSnapshotsOutput.builder()
+                .snapshots(arr != null ? Arrays.asList(arr) : Collections.emptyList())
+                .nextToken(response.header(HEADER_NEXT_TOKEN))
+                .requestId(response.requestId())
+                .headers(response.headersAsMap())
+                .build();
     }
 
-    public static List<SnapshotInfo> listSnapshots(ConnectionConfig config) {
+    public static ListSnapshotsOutput listSnapshots(ConnectionConfig config) {
         return listSnapshots(config, null, null, null);
     }
 
     /**
      * Delete a snapshot by ID.
+     *
+     * @return delete result plus {@code requestId} from response headers
      */
-    public static boolean deleteSnapshot(String snapshotId, ConnectionConfig config) {
-        return new E2bApiClient(config).delete("/templates/" + snapshotId);
+    public static DeleteSnapshotOutput deleteSnapshot(String snapshotId, ConnectionConfig config) {
+        ApiResponse<Boolean> response = new E2bApiClient(config)
+                .deleteWithResponse("/templates/" + snapshotId);
+        return DeleteSnapshotOutput.builder()
+                .deleted(Boolean.TRUE.equals(response.getBody()))
+                .requestId(response.requestId())
+                .headers(response.headersAsMap())
+                .build();
     }
 
     // -------------------------------------------------------------------------
@@ -455,13 +574,15 @@ public class Sandbox implements AutoCloseable {
 
     private static Sandbox fromConnectResponse(SandboxConnectResponse response,
                                                ConnectionConfig config,
-                                               E2bApiClient api) {
+                                               E2bApiClient api,
+                                               String requestId,
+                                               Map<String, String> headers) {
         SandboxInfo info = new SandboxInfo();
         info.setSandboxId(response.getSandboxId());
         info.setSandboxDomain(response.getSandboxDomain());
         info.setTemplateId(response.getTemplateId());
         info.setEnvdAccessToken(response.getEnvdAccessToken());
         info.setEnvdVersion(response.getEnvdVersion());
-        return new Sandbox(info, config, api, response.getEnvdAccessToken());
+        return new Sandbox(info, config, api, response.getEnvdAccessToken(), requestId, headers);
     }
 }
