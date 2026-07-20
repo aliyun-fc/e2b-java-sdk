@@ -53,7 +53,7 @@ public class Sandbox implements AutoCloseable {
 
     private final String envdAccessToken;
 
-    /** Request identifier ({@code X-Request-ID}) of the create/connect API call that produced this instance. */
+    /** Request identifier ({@code X-Request-ID} or {@code x-fc-request-id}) of the create/connect API call that produced this instance. */
     private final String requestId;
 
     // -------------------------------------------------------------------------
@@ -90,7 +90,7 @@ public class Sandbox implements AutoCloseable {
      * @param template Template ID or name (e.g. "base", "python")
      * @param config   Connection configuration
      * @param opts     Additional creation options (timeout, metadata, envs, …)
-     * @return Running Sandbox instance; the create call's {@code X-Request-ID} is available via
+     * @return Running Sandbox instance; the create call's request id is available via
      *         {@link #getRequestId()}
      */
     public static Sandbox create(String template, ConnectionConfig config, NewSandbox opts) {
@@ -156,7 +156,7 @@ public class Sandbox implements AutoCloseable {
                 .getWithResponse("/sandboxes/" + sandboxId, null, SandboxInfo.class);
         return GetSandboxOutput.builder()
                 .sandbox(response.getBody())
-                .requestId(response.header(HEADER_REQUEST_ID))
+                .requestId(response.requestId())
                 .headers(response.headersAsMap())
                 .build();
     }
@@ -234,7 +234,7 @@ public class Sandbox implements AutoCloseable {
                 .getWithResponse("/sandboxes/" + sandboxId, null, SandboxInfo.class);
         return GetSandboxOutput.builder()
                 .sandbox(response.getBody())
-                .requestId(response.header(HEADER_REQUEST_ID))
+                .requestId(response.requestId())
                 .headers(response.headersAsMap())
                 .build();
     }
@@ -352,7 +352,6 @@ public class Sandbox implements AutoCloseable {
     // -------------------------------------------------------------------------
 
     private static final String HEADER_NEXT_TOKEN = "x-next-token";
-    private static final String HEADER_REQUEST_ID = "X-Request-ID";
 
     /**
      * List all sandboxes visible to the API key.
@@ -394,7 +393,7 @@ public class Sandbox implements AutoCloseable {
         return ListSandboxesOutput.builder()
                 .sandboxes(arr != null ? Arrays.asList(arr) : Collections.emptyList())
                 .nextToken(response.header(HEADER_NEXT_TOKEN))
-                .requestId(response.header(HEADER_REQUEST_ID))
+                .requestId(response.requestId())
                 .headers(response.headersAsMap())
                 .build();
     }

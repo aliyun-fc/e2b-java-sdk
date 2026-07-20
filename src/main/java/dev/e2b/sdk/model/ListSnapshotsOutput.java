@@ -22,7 +22,7 @@ public class ListSnapshotsOutput {
     @Builder.Default
     private List<SnapshotInfo> snapshots = Collections.emptyList();
 
-    /** Request identifier from response header {@code X-Request-ID}. */
+    /** Request identifier from {@code X-Request-ID}, or {@code x-fc-request-id} if absent. */
     private String requestId;
 
     /** Full HTTP response headers (first value per name). */
