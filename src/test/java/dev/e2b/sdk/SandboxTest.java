@@ -2,6 +2,7 @@ package dev.e2b.sdk;
 
 import dev.e2b.sdk.client.ConnectionConfig;
 import dev.e2b.sdk.exception.AuthenticationException;
+import dev.e2b.sdk.exception.RateLimitException;
 import dev.e2b.sdk.exception.SandboxException;
 import dev.e2b.sdk.exception.SandboxNotFoundException;
 import dev.e2b.sdk.model.*;
@@ -161,6 +162,43 @@ class SandboxTest {
         AuthenticationException ex = assertThrows(AuthenticationException.class, sandbox::isRunning);
         assertEquals(401, ex.getStatusCode());
         assertEquals("req-401", ex.getRequestId());
+    }
+
+    @Test
+    void isRunning_rethrowsRateLimitException() {
+        server.enqueue(new MockResponse()
+                .setBody("{\"sandboxID\":\"sbx-xyz\",\"domain\":\"sandbox.e2b.app\","
+                        + "\"templateID\":\"python\",\"envdVersion\":\"0.1.0\","
+                        + "\"envdAccessToken\":\"tok-xyz\"}")
+                .setHeader("Content-Type", "application/json"));
+        server.enqueue(new MockResponse()
+                .setResponseCode(429)
+                .setBody("slow down")
+                .setHeader("X-Request-ID", "req-429"));
+
+        Sandbox sandbox = Sandbox.connect("sbx-xyz", config);
+        RateLimitException ex = assertThrows(RateLimitException.class, sandbox::isRunning);
+        assertEquals(429, ex.getStatusCode());
+        assertEquals("req-429", ex.getRequestId());
+    }
+
+    @Test
+    void isRunning_rethrowsServerError() {
+        server.enqueue(new MockResponse()
+                .setBody("{\"sandboxID\":\"sbx-xyz\",\"domain\":\"sandbox.e2b.app\","
+                        + "\"templateID\":\"python\",\"envdVersion\":\"0.1.0\","
+                        + "\"envdAccessToken\":\"tok-xyz\"}")
+                .setHeader("Content-Type", "application/json"));
+        server.enqueue(new MockResponse()
+                .setResponseCode(503)
+                .setBody("unavailable")
+                .setHeader("x-fc-request-id", "fc-req-503"));
+
+        Sandbox sandbox = Sandbox.connect("sbx-xyz", config);
+        SandboxException ex = assertThrows(SandboxException.class, sandbox::isRunning);
+        assertEquals(503, ex.getStatusCode());
+        assertEquals("fc-req-503", ex.getRequestId());
+        assertFalse(ex instanceof SandboxNotFoundException);
     }
 
     // -------------------------------------------------------------------------

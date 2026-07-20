@@ -3,8 +3,8 @@ package dev.e2b.sdk;
 import dev.e2b.sdk.client.ApiResponse;
 import dev.e2b.sdk.client.ConnectionConfig;
 import dev.e2b.sdk.client.E2bApiClient;
-import dev.e2b.sdk.exception.AuthenticationException;
 import dev.e2b.sdk.exception.SandboxException;
+import dev.e2b.sdk.exception.SandboxNotFoundException;
 import dev.e2b.sdk.model.*;
 import dev.e2b.sdk.sandbox.Commands;
 import dev.e2b.sdk.sandbox.Filesystem;
@@ -316,19 +316,17 @@ public class Sandbox implements AutoCloseable {
     }
 
     /**
-     * Check whether the sandbox is currently running (live ping).
+     * Check whether the sandbox is currently running (live ping via {@link #getInfo()}).
      *
-     * <p>Network / not-found style failures are treated as not running. Authentication
-     * failures ({@link AuthenticationException}) are rethrown so callers are not told
-     * the sandbox stopped when the API key is invalid.
+     * <p>{@link SandboxNotFoundException} (HTTP 404) is treated as not running. Other API
+     * failures — including authentication, rate limiting, and 5xx — are rethrown so callers
+     * do not mistake transient or auth errors for a stopped sandbox.
      */
     public boolean isRunning() {
         try {
             SandboxInfo info = getInfo().getSandbox();
             return info != null && SandboxState.RUNNING.equals(info.getState());
-        } catch (AuthenticationException e) {
-            throw e;
-        } catch (SandboxException e) {
+        } catch (SandboxNotFoundException e) {
             return false;
         }
     }
