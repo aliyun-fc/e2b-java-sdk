@@ -2,6 +2,7 @@ package dev.e2b.sdk.codeinterpreter;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -55,7 +56,9 @@ public class Execution {
     }
 
     public void setHeaders(Map<String, String> headers) {
-        this.headers = headers == null ? Collections.emptyMap() : headers;
+        this.headers = headers == null
+                ? Collections.emptyMap()
+                : Collections.unmodifiableMap(new LinkedHashMap<>(headers));
     }
 
     /** Convenience: the text of the main result, or {@code null} if there is none. */

@@ -1,6 +1,7 @@
 package dev.e2b.sdk.codeinterpreter;
 
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /** A persistent code-execution context (kernel) with its own state, language and working dir. */
@@ -43,7 +44,9 @@ public class Context {
     }
 
     public void setHeaders(Map<String, String> headers) {
-        this.headers = headers == null ? Collections.emptyMap() : headers;
+        this.headers = headers == null
+                ? Collections.emptyMap()
+                : Collections.unmodifiableMap(new LinkedHashMap<>(headers));
     }
 
     @Override

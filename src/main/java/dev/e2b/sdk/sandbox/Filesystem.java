@@ -291,8 +291,9 @@ public class Filesystem {
         Request req = buildConnectRequest("/filesystem.Filesystem/MakeDir", json.toString(), user);
         try (Response resp = api.httpClient().newCall(req).execute()) {
             handleError(resp, "makeDir");
+            // handleError above throws on non-2xx, so success here is always true
             return MakeDirOutput.builder()
-                    .created(resp.isSuccessful())
+                    .created(true)
                     .requestId(ApiResponse.requestIdFrom(resp.headers()))
                     .headers(ApiResponse.headersAsMap(resp.headers()))
                     .build();
