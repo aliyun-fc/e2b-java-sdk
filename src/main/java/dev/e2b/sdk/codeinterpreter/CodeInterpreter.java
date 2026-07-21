@@ -195,6 +195,13 @@ public class CodeInterpreter implements AutoCloseable {
         return context;
     }
 
+    /**
+     * List code-execution contexts.
+     *
+     * <p>{@link ListContextsOutput#getRequestId()} / {@code getHeaders()} are the authoritative
+     * transport metadata for this call. Each {@link Context} also carries the same values for
+     * convenience when a context is used alone — they all come from this single HTTP response.
+     */
     public ListContextsOutput listCodeContexts() {
         Request req = jupyterRequest("/contexts").get().build();
         JsonCall call = sendForJson(req);

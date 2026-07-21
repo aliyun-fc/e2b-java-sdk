@@ -42,17 +42,16 @@ public class Filesystem {
     /**
      * Read a file as UTF-8 text.
      *
-     * <p>The returned {@link ReadFileOutput} sets {@code text} (and request metadata).
-     * Raw bytes are not retained — use {@link #readBytes(String, String)} when you need them.
+     * <p>Reuses the {@link ReadFileOutput} from {@link #readBytes(String, String)}, sets {@code text},
+     * and clears {@code bytes} so large files are not held twice in memory.
+     * Use {@link #readBytes(String, String)} when you need the raw bytes.
      */
     public ReadFileOutput read(String path, String user) {
         ReadFileOutput raw = readBytes(path, user);
         byte[] bytes = raw.getBytes() != null ? raw.getBytes() : new byte[0];
-        return ReadFileOutput.builder()
-                .text(new String(bytes, StandardCharsets.UTF_8))
-                .requestId(raw.getRequestId())
-                .headers(raw.getHeaders())
-                .build();
+        raw.setText(new String(bytes, StandardCharsets.UTF_8));
+        raw.setBytes(null);
+        return raw;
     }
 
     public ReadFileOutput read(String path) {

@@ -173,6 +173,7 @@ public class Commands {
             throw new SandboxException("Background command start failed", e);
         }
         if (!resp.isSuccessful()) {
+            // httpError reads the body (may fail internally) and always throws SandboxException with meta.
             try {
                 throw httpError(resp, "Background command start failed (");
             } finally {
