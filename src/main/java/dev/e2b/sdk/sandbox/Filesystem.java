@@ -197,11 +197,15 @@ public class Filesystem {
                     .headers(info.getHeaders())
                     .build();
         } catch (SandboxException e) {
-            return ExistsOutput.builder()
-                    .exists(false)
-                    .requestId(e.getRequestId())
-                    .headers(e.getHeaders())
-                    .build();
+            // Only treat missing path as exists=false; rethrow timeouts / 5xx / auth, etc.
+            if (e.getStatusCode() != null && e.getStatusCode() == 404) {
+                return ExistsOutput.builder()
+                        .exists(false)
+                        .requestId(e.getRequestId())
+                        .headers(e.getHeaders())
+                        .build();
+            }
+            throw e;
         }
     }
 

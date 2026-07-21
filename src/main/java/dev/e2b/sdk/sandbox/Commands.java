@@ -392,7 +392,7 @@ public class Commands {
         try {
             err = resp.body() != null ? resp.body().string() : "";
         } catch (IOException e) {
-            throw new SandboxException(
+            return new SandboxException(
                     prefix + resp.code() + ")",
                     e,
                     resp.code(),
