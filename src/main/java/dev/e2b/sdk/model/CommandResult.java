@@ -1,5 +1,6 @@
 package dev.e2b.sdk.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -20,10 +21,12 @@ public class CommandResult {
     private int exitCode;
     private String error;
 
-    /** Request id from {@code X-Request-ID}, or {@code x-fc-request-id} / {@code X-Fc-Request-Id} if absent. */
+    /** Request id from {@code X-Request-ID}, or {@code x-fc-request-id} if absent. */
+    @JsonIgnore
     private String requestId;
 
     /** Full HTTP response headers (first value per name). */
+    @JsonIgnore
     @Builder.Default
     private Map<String, String> headers = Collections.emptyMap();
 

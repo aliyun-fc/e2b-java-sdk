@@ -40,13 +40,16 @@ public class Filesystem {
     private final String accessToken;
 
     /**
-     * Read a file as a UTF-8 string.
+     * Read a file as UTF-8 text.
+     *
+     * <p>The returned {@link ReadFileOutput} sets {@code text} (and request metadata).
+     * Raw bytes are not retained — use {@link #readBytes(String, String)} when you need them.
      */
     public ReadFileOutput read(String path, String user) {
         ReadFileOutput raw = readBytes(path, user);
+        byte[] bytes = raw.getBytes() != null ? raw.getBytes() : new byte[0];
         return ReadFileOutput.builder()
-                .text(new String(raw.getBytes() != null ? raw.getBytes() : new byte[0], StandardCharsets.UTF_8))
-                .bytes(raw.getBytes())
+                .text(new String(bytes, StandardCharsets.UTF_8))
                 .requestId(raw.getRequestId())
                 .headers(raw.getHeaders())
                 .build();
@@ -323,6 +326,7 @@ public class Filesystem {
         return api.mapper.treeToValue(entry != null ? entry : root, EntryInfo.class);
     }
 
+    /** Relies on Lombok {@code @Data} setters on {@link WriteInfo} (not builder-only). */
     private static <T extends WriteInfo> T attachMeta(T info, Headers headers) {
         if (info != null) {
             info.setRequestId(ApiResponse.requestIdFrom(headers));

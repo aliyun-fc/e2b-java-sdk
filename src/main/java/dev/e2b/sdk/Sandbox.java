@@ -28,7 +28,7 @@ import java.util.*;
  *     System.out.println(result.getStdout()); // "hello\n"
  *
  *     sandbox.files().write("/home/user/hello.txt", "Hello, world!");
- *     String content = sandbox.files().read("/home/user/hello.txt");
+ *     String content = sandbox.files().read("/home/user/hello.txt").getText();
  * }
  * }</pre>
  */

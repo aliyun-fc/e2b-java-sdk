@@ -1,4 +1,5 @@
 package dev.e2b.sdk.model;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -16,7 +17,9 @@ public class GitStatus {
     private int behind;
     private boolean detached;
     @JsonProperty("file_status") private List<GitFileStatus> fileStatus;
+    @JsonIgnore
     private String requestId;
+    @JsonIgnore
     private Map<String, String> headers = Collections.emptyMap();
 
     public boolean isClean() { return fileStatus == null || fileStatus.isEmpty(); }

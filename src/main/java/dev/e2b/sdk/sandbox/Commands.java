@@ -175,8 +175,6 @@ public class Commands {
         if (!resp.isSuccessful()) {
             try {
                 throw httpError(resp, "Background command start failed (");
-            } catch (IOException e) {
-                throw new SandboxException("Background command start failed (" + resp.code() + ")", e);
             } finally {
                 resp.close();
             }
@@ -386,13 +384,25 @@ public class Commands {
         return result;
     }
 
-    private static SandboxException httpError(Response resp, String prefix) throws IOException {
-        String err = resp.body() != null ? resp.body().string() : "";
+    private static SandboxException httpError(Response resp, String prefix) {
+        String requestId = ApiResponse.requestIdFrom(resp.headers());
+        Map<String, String> headers = ApiResponse.headersAsMap(resp.headers());
+        String err;
+        try {
+            err = resp.body() != null ? resp.body().string() : "";
+        } catch (IOException e) {
+            throw new SandboxException(
+                    prefix + resp.code() + ")",
+                    e,
+                    resp.code(),
+                    requestId,
+                    headers);
+        }
         return new SandboxException(
                 prefix + resp.code() + "): " + err,
                 resp.code(),
-                ApiResponse.requestIdFrom(resp.headers()),
-                ApiResponse.headersAsMap(resp.headers()));
+                requestId,
+                headers);
     }
 
     // -------------------------------------------------------------------------
