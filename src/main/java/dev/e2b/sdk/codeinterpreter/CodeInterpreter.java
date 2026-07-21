@@ -2,6 +2,7 @@ package dev.e2b.sdk.codeinterpreter;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import dev.e2b.sdk.Sandbox;
+import dev.e2b.sdk.client.ApiResponse;
 import dev.e2b.sdk.client.ConnectionConfig;
 import dev.e2b.sdk.exception.SandboxException;
 import dev.e2b.sdk.exception.SandboxNotFoundException;
@@ -143,6 +144,8 @@ public class CodeInterpreter implements AutoCloseable {
         Execution execution = new Execution();
         try (Response resp = http.newCall(req).execute()) {
             throwIfError(resp);
+            execution.setRequestId(ApiResponse.requestIdFrom(resp.headers()));
+            execution.setHeaders(ApiResponse.headersAsMap(resp.headers()));
             ResponseBody body = resp.body();
             if (body == null) {
                 return execution;
@@ -185,40 +188,58 @@ public class CodeInterpreter implements AutoCloseable {
                 .post(RequestBody.create(serialize(data),
                         MediaType.get("application/json; charset=utf-8")))
                 .build();
-        JsonNode node = sendForJson(req);
-        return toContext(node);
+        JsonCall call = sendForJson(req);
+        Context context = toContext(call.body);
+        context.setRequestId(call.requestId);
+        context.setHeaders(call.headers);
+        return context;
     }
 
-    public List<Context> listCodeContexts() {
+    public ListContextsOutput listCodeContexts() {
         Request req = jupyterRequest("/contexts").get().build();
-        JsonNode node = sendForJson(req);
+        JsonCall call = sendForJson(req);
         List<Context> contexts = new ArrayList<Context>();
-        if (node != null && node.isArray()) {
-            for (JsonNode c : node) {
-                contexts.add(toContext(c));
+        if (call.body != null && call.body.isArray()) {
+            for (JsonNode c : call.body) {
+                Context ctx = toContext(c);
+                ctx.setRequestId(call.requestId);
+                ctx.setHeaders(call.headers);
+                contexts.add(ctx);
             }
         }
-        return contexts;
+        return ListContextsOutput.builder()
+                .contexts(contexts)
+                .requestId(call.requestId)
+                .headers(call.headers)
+                .build();
     }
 
-    public void removeCodeContext(String contextId) {
+    public ContextActionOutput removeCodeContext(String contextId) {
         Request req = jupyterRequest("/contexts/" + contextId).delete().build();
-        sendForJson(req);
+        JsonCall call = sendForJson(req);
+        return ContextActionOutput.builder()
+                .requestId(call.requestId)
+                .headers(call.headers)
+                .build();
     }
 
-    public void removeCodeContext(Context context) {
-        removeCodeContext(context.getId());
+    public ContextActionOutput removeCodeContext(Context context) {
+        return removeCodeContext(context.getId());
     }
 
-    public void restartCodeContext(String contextId) {
+    public ContextActionOutput restartCodeContext(String contextId) {
         Request req = jupyterRequest("/contexts/" + contextId + "/restart")
                 .post(RequestBody.create(new byte[0]))
                 .build();
-        sendForJson(req);
+        JsonCall call = sendForJson(req);
+        return ContextActionOutput.builder()
+                .requestId(call.requestId)
+                .headers(call.headers)
+                .build();
     }
 
-    public void restartCodeContext(Context context) {
-        restartCodeContext(context.getId());
+    public ContextActionOutput restartCodeContext(Context context) {
+        return restartCodeContext(context.getId());
     }
 
     // -------------------------------------------------------------------------
@@ -250,20 +271,34 @@ public class CodeInterpreter implements AutoCloseable {
         return builder;
     }
 
-    private JsonNode sendForJson(Request req) {
+    private JsonCall sendForJson(Request req) {
         try (Response resp = http.newCall(req).execute()) {
             throwIfError(resp);
+            String requestId = ApiResponse.requestIdFrom(resp.headers());
+            Map<String, String> headers = ApiResponse.headersAsMap(resp.headers());
             ResponseBody body = resp.body();
             if (body == null) {
-                return null;
+                return new JsonCall(null, requestId, headers);
             }
             String json = body.string();
             if (json.isEmpty()) {
-                return null;
+                return new JsonCall(null, requestId, headers);
             }
-            return mapper.readTree(json);
+            return new JsonCall(mapper.readTree(json), requestId, headers);
         } catch (IOException e) {
             throw new SandboxException("Jupyter request failed: " + req.url(), e);
+        }
+    }
+
+    private static final class JsonCall {
+        final JsonNode body;
+        final String requestId;
+        final Map<String, String> headers;
+
+        JsonCall(JsonNode body, String requestId, Map<String, String> headers) {
+            this.body = body;
+            this.requestId = requestId;
+            this.headers = headers;
         }
     }
 
@@ -366,13 +401,17 @@ public class CodeInterpreter implements AutoCloseable {
         }
         String body = resp.body() != null ? resp.body().string() : "";
         int code = resp.code();
+        String requestId = ApiResponse.requestIdFrom(resp.headers());
+        Map<String, String> headers = ApiResponse.headersAsMap(resp.headers());
         if (code == 404) {
-            throw new SandboxNotFoundException("Code interpreter resource not found: " + body);
+            throw new SandboxNotFoundException(
+                    "Code interpreter resource not found: " + body, code, requestId, headers);
         }
         if (code == 502) {
             throw new SandboxException("502: " + body
-                    + " (likely sandbox timeout; increase the sandbox timeout or call setTimeout)");
+                    + " (likely sandbox timeout; increase the sandbox timeout or call setTimeout)",
+                    code, requestId, headers);
         }
-        throw new SandboxException("Code interpreter error " + code + ": " + body);
+        throw new SandboxException("Code interpreter error " + code + ": " + body, code, requestId, headers);
     }
 }

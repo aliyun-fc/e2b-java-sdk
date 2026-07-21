@@ -41,8 +41,16 @@ class CommandsStreamTest {
     }
 
     @AfterEach
-    void tearDown() throws IOException {
-        envd.shutdown();
+    void tearDown() {
+        try {
+            envd.shutdown();
+        } catch (IOException ignored) {
+            // Throttled background streams can leave the dispatcher busy; force close.
+            try {
+                envd.close();
+            } catch (IOException ignored2) {
+            }
+        }
     }
 
     @Test
@@ -140,6 +148,9 @@ class CommandsStreamTest {
         // Fast completion (well under the 3s wait) proves the stream was actually cancelled rather
         // than left to hang; without the cancel the drain would never return.
         assertTrue(elapsedMs < 2000, "cancel should unblock the drain promptly, took " + elapsedMs + "ms");
+
+        // Ensure the throttled MockWebServer connection is released before tearDown.
+        handle.disconnect();
     }
 
     private static String b64(String s) {

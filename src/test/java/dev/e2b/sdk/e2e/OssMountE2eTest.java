@@ -53,7 +53,7 @@ class OssMountE2eTest extends E2eTestBase {
             String marker = "java-e2e-" + UUID.randomUUID();
             String filePath = mountDir + "/e2e-" + marker + ".txt";
             sandbox.getFiles().write(filePath, marker);
-            assertEquals(marker, sandbox.getFiles().read(filePath).trim());
+            assertEquals(marker, sandbox.getFiles().read(filePath).getText().trim());
         } finally {
             E2eSupport.killQuietly(sandbox);
         }

@@ -1,11 +1,15 @@
 package dev.e2b.sdk.sandbox;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import dev.e2b.sdk.client.ApiResponse;
 import dev.e2b.sdk.client.E2bApiClient;
 import dev.e2b.sdk.exception.CommandExitException;
 import dev.e2b.sdk.exception.SandboxException;
 import dev.e2b.sdk.model.CommandResult;
+import dev.e2b.sdk.model.KillProcessOutput;
+import dev.e2b.sdk.model.ListProcessesOutput;
 import dev.e2b.sdk.model.ProcessInfo;
+import dev.e2b.sdk.model.SendStdinOutput;
 import lombok.RequiredArgsConstructor;
 import okhttp3.*;
 import okio.BufferedSource;
@@ -114,11 +118,10 @@ public class Commands {
 
         try (Response resp = client.newCall(builder.build()).execute()) {
             if (!resp.isSuccessful()) {
-                String err = resp.body() != null ? resp.body().string() : "";
-                throw new SandboxException("Command start failed (" + resp.code() + "): " + err);
+                throw httpError(resp, "Command start failed (");
             }
             byte[] raw = resp.body() != null ? resp.body().bytes() : new byte[0];
-            CommandResult result = parseProcessStream(raw);
+            CommandResult result = attachMeta(parseProcessStream(raw), resp.headers());
             if (throwOnError && result.getExitCode() != 0) {
                 throw new CommandExitException(result);
             }
@@ -170,14 +173,17 @@ public class Commands {
             throw new SandboxException("Background command start failed", e);
         }
         if (!resp.isSuccessful()) {
-            String err = "";
             try {
-                err = resp.body() != null ? resp.body().string() : "";
-            } catch (IOException ignored) {
+                throw httpError(resp, "Background command start failed (");
+            } catch (IOException e) {
+                throw new SandboxException("Background command start failed (" + resp.code() + ")", e);
+            } finally {
+                resp.close();
             }
-            resp.close();
-            throw new SandboxException("Background command start failed (" + resp.code() + "): " + err);
         }
+
+        String requestId = ApiResponse.requestIdFrom(resp.headers());
+        Map<String, String> headers = ApiResponse.headersAsMap(resp.headers());
 
         // Track this long-lived stream so the sandbox can cancel it on destroy.
         activeCalls.add(call);
@@ -202,8 +208,10 @@ public class Commands {
             resp.close();
             CommandResult finished = CommandResult.builder()
                     .stdout(stdout.toString()).stderr(stderr.toString())
-                    .exitCode(exit[0]).error(error[0]).build();
-            return new CommandHandle(-1, CompletableFuture.completedFuture(finished), call);
+                    .exitCode(exit[0]).error(error[0])
+                    .requestId(requestId).headers(headers)
+                    .build();
+            return new CommandHandle(-1, CompletableFuture.completedFuture(finished), call, requestId, headers);
         }
 
         CompletableFuture<CommandResult> future = new CompletableFuture<CommandResult>();
@@ -212,7 +220,9 @@ public class Commands {
                 drainRemaining(source, stdout, stderr, exit, error);
                 future.complete(CommandResult.builder()
                         .stdout(stdout.toString()).stderr(stderr.toString())
-                        .exitCode(exit[0]).error(error[0]).build());
+                        .exitCode(exit[0]).error(error[0])
+                        .requestId(requestId).headers(headers)
+                        .build());
             } catch (Exception e) {
                 future.completeExceptionally(new SandboxException("Background command stream error", e));
             } finally {
@@ -221,7 +231,7 @@ public class Commands {
             }
         });
 
-        return new CommandHandle(pid, future, call);
+        return new CommandHandle(pid, future, call, requestId, headers);
     }
 
     /** Start a command in the background with defaults. */
@@ -270,12 +280,11 @@ public class Commands {
     /**
      * List all running processes inside the sandbox (unary RPC).
      */
-    public List<ProcessInfo> list() {
+    public ListProcessesOutput list() {
         Request req = unaryRequest("/process.Process/List", "{}", null);
         try (Response resp = api.httpClient().newCall(req).execute()) {
             if (!resp.isSuccessful()) {
-                String err = resp.body() != null ? resp.body().string() : "";
-                throw new SandboxException("List processes failed (" + resp.code() + "): " + err);
+                throw httpError(resp, "List processes failed (");
             }
             String bodyStr = resp.body() != null ? resp.body().string() : "{}";
             JsonNode root = api.mapper.readTree(bodyStr);
@@ -314,7 +323,11 @@ public class Commands {
                     result.add(info);
                 }
             }
-            return result;
+            return ListProcessesOutput.builder()
+                    .processes(result)
+                    .requestId(ApiResponse.requestIdFrom(resp.headers()))
+                    .headers(ApiResponse.headersAsMap(resp.headers()))
+                    .build();
         } catch (IOException e) {
             throw new SandboxException("Failed to list processes", e);
         }
@@ -326,7 +339,7 @@ public class Commands {
      * @param pid  Process ID
      * @param data Data to send
      */
-    public void sendStdin(int pid, String data) {
+    public SendStdinOutput sendStdin(int pid, String data) {
         Map<String, Object> input = new LinkedHashMap<String, Object>();
         input.put("stdin", Base64.getEncoder().encodeToString(data.getBytes(StandardCharsets.UTF_8)));
         Map<String, Object> body = new LinkedHashMap<String, Object>();
@@ -336,8 +349,12 @@ public class Commands {
         Request req = unaryRequest("/process.Process/SendInput", serializeString(body), null);
         try (Response resp = api.httpClient().newCall(req).execute()) {
             if (!resp.isSuccessful()) {
-                throw new SandboxException("sendStdin failed: " + resp.code());
+                throw httpError(resp, "sendStdin failed (");
             }
+            return SendStdinOutput.builder()
+                    .requestId(ApiResponse.requestIdFrom(resp.headers()))
+                    .headers(ApiResponse.headersAsMap(resp.headers()))
+                    .build();
         } catch (IOException e) {
             throw new SandboxException("sendStdin failed", e);
         }
@@ -346,17 +363,36 @@ public class Commands {
     /**
      * Kill a running process by PID using SIGKILL (unary RPC).
      */
-    public boolean kill(int pid) {
+    public KillProcessOutput kill(int pid) {
         Map<String, Object> body = new LinkedHashMap<String, Object>();
         body.put("process", singletonPid(pid));
         body.put("signal", "SIGNAL_SIGKILL");
 
         Request req = unaryRequest("/process.Process/SendSignal", serializeString(body), null);
         try (Response resp = api.httpClient().newCall(req).execute()) {
-            return resp.isSuccessful();
+            return KillProcessOutput.builder()
+                    .killed(resp.isSuccessful())
+                    .requestId(ApiResponse.requestIdFrom(resp.headers()))
+                    .headers(ApiResponse.headersAsMap(resp.headers()))
+                    .build();
         } catch (IOException e) {
             throw new SandboxException("kill failed", e);
         }
+    }
+
+    private static CommandResult attachMeta(CommandResult result, Headers headers) {
+        result.setRequestId(ApiResponse.requestIdFrom(headers));
+        result.setHeaders(ApiResponse.headersAsMap(headers));
+        return result;
+    }
+
+    private static SandboxException httpError(Response resp, String prefix) throws IOException {
+        String err = resp.body() != null ? resp.body().string() : "";
+        return new SandboxException(
+                prefix + resp.code() + "): " + err,
+                resp.code(),
+                ApiResponse.requestIdFrom(resp.headers()),
+                ApiResponse.headersAsMap(resp.headers()));
     }
 
     // -------------------------------------------------------------------------

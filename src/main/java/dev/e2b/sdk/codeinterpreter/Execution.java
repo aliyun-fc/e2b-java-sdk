@@ -1,7 +1,9 @@
 package dev.e2b.sdk.codeinterpreter;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Represents the result of a code execution: the rich {@link Result} objects, the stdout/stderr
@@ -13,6 +15,8 @@ public class Execution {
     private final Logs logs = new Logs();
     private ExecutionError error;
     private Integer executionCount;
+    private String requestId;
+    private Map<String, String> headers = Collections.emptyMap();
 
     public List<Result> getResults() {
         return results;
@@ -36,6 +40,22 @@ public class Execution {
 
     void setExecutionCount(Integer executionCount) {
         this.executionCount = executionCount;
+    }
+
+    public String getRequestId() {
+        return requestId;
+    }
+
+    public void setRequestId(String requestId) {
+        this.requestId = requestId;
+    }
+
+    public Map<String, String> getHeaders() {
+        return headers;
+    }
+
+    public void setHeaders(Map<String, String> headers) {
+        this.headers = headers == null ? Collections.emptyMap() : headers;
     }
 
     /** Convenience: the text of the main result, or {@code null} if there is none. */

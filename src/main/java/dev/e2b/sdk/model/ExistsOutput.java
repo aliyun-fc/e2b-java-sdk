@@ -1,17 +1,23 @@
 package dev.e2b.sdk.model;
-import com.fasterxml.jackson.annotation.JsonProperty;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 
 @Data
+@Builder
 @NoArgsConstructor
-public class GitBranches {
-    private List<String> branches;
-    @JsonProperty("current_branch") private String currentBranch;
+@AllArgsConstructor
+public class ExistsOutput {
+
+    private boolean exists;
+
     private String requestId;
+
+    @Builder.Default
     private Map<String, String> headers = Collections.emptyMap();
 }

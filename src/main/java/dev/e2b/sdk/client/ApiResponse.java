@@ -66,7 +66,8 @@ public final class ApiResponse<T> {
     }
 
     /**
-     * Prefers {@code X-Request-ID}; if absent, falls back to {@code x-fc-request-id}.
+     * Prefers {@code X-Request-ID}; if absent, falls back to {@code x-fc-request-id}
+     * / {@code X-Fc-Request-Id}.
      */
     public static String requestIdFrom(Headers headers) {
         if (headers == null) {
@@ -75,6 +76,9 @@ public final class ApiResponse<T> {
         String requestId = headers.get("X-Request-ID");
         if (requestId == null || requestId.isEmpty()) {
             requestId = headers.get("x-fc-request-id");
+        }
+        if (requestId == null || requestId.isEmpty()) {
+            requestId = headers.get("X-Fc-Request-Id");
         }
         return (requestId == null || requestId.isEmpty()) ? null : requestId;
     }

@@ -33,7 +33,7 @@ class ProcessManagementE2eTest extends E2eTestBase {
 
             E2eSupport.sleepMillis(500);
 
-            List<ProcessInfo> processes = sandbox.getCommands().list();
+            List<ProcessInfo> processes = sandbox.getCommands().list().getProcesses();
             assertFalse(processes.isEmpty(), "process list should not be empty");
             assertTrue(processes.stream().anyMatch(p -> p.getPid() == pid),
                     "started background process should appear in list()");
@@ -41,14 +41,14 @@ class ProcessManagementE2eTest extends E2eTestBase {
             sandbox.getCommands().sendStdin(pid, "stdin-payload\n");
             E2eSupport.sleepMillis(1000);
 
-            String content = sandbox.getFiles().read("/tmp/stdin-out.txt");
+            String content = sandbox.getFiles().read("/tmp/stdin-out.txt").getText();
             assertEquals("stdin-payload", content.trim());
 
-            assertTrue(sandbox.getCommands().kill(pid), "kill() should succeed for a tracked process");
+            assertTrue(sandbox.getCommands().kill(pid).isKilled(), "kill() should succeed for a tracked process");
             handle.waitForExit(10, TimeUnit.SECONDS);
             E2eSupport.sleepMillis(300);
 
-            List<ProcessInfo> afterKill = sandbox.getCommands().list();
+            List<ProcessInfo> afterKill = sandbox.getCommands().list().getProcesses();
             assertFalse(afterKill.stream().anyMatch(p -> p.getPid() == pid),
                     "killed process should no longer be listed");
         } finally {
@@ -65,10 +65,10 @@ class ProcessManagementE2eTest extends E2eTestBase {
             assertTrue(pid > 0);
 
             E2eSupport.sleepMillis(300);
-            assertTrue(sandbox.getCommands().list().stream().anyMatch(p -> p.getPid() == pid),
+            assertTrue(sandbox.getCommands().list().getProcesses().stream().anyMatch(p -> p.getPid() == pid),
                     "sleep process should be tracked");
 
-            assertTrue(sandbox.getCommands().kill(pid), "kill() should succeed");
+            assertTrue(sandbox.getCommands().kill(pid).isKilled(), "kill() should succeed");
 
             // The process stream completes once envd reports the kill.
             CommandResult result = handle.waitForExit(10, TimeUnit.SECONDS);

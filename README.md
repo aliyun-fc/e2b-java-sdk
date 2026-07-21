@@ -59,7 +59,7 @@ try (Sandbox sandbox = Sandbox.create(config)) {
     System.out.println(result.getStdout()); // Hello from Sandbox!
 
     sandbox.getFiles().write("/home/user/hello.txt", "Hello, world!");
-    String content = sandbox.getFiles().read("/home/user/hello.txt");
+    String content = sandbox.getFiles().read("/home/user/hello.txt").getText();
     System.out.println(content); // Hello, world!
 }
 ```
@@ -123,9 +123,9 @@ CommandHandle handle = cmd.runBackground("sleep 30"); // background process
 handle.getPid();
 handle.waitForExit();
 
-cmd.list();                                           // running processes
+cmd.list().getProcesses();                            // running processes
 cmd.sendStdin(handle.getPid(), "input\n");            // write to stdin
-cmd.kill(handle.getPid());                            // terminate a process
+cmd.kill(handle.getPid()).isKilled();                 // terminate a process
 ```
 
 ### Filesystem
@@ -134,13 +134,13 @@ cmd.kill(handle.getPid());                            // terminate a process
 Filesystem fs = sandbox.getFiles();
 
 fs.write("/home/user/a.txt", "content");
-fs.read("/home/user/a.txt");
-fs.readBytes("/home/user/img.png");
-fs.list("/home/user");
-fs.exists("/home/user/a.txt");
+fs.read("/home/user/a.txt").getText();
+fs.readBytes("/home/user/img.png").getBytes();
+fs.list("/home/user").getEntries();
+fs.exists("/home/user/a.txt").isExists();
 fs.getInfo("/home/user/a.txt");
 fs.rename("/home/user/a.txt", "/home/user/b.txt");
-fs.makeDir("/home/user/dir");
+fs.makeDir("/home/user/dir").isCreated();
 fs.remove("/home/user/dir");
 sandbox.downloadUrl("/home/user/b.txt");              // pre-signed download URL
 ```

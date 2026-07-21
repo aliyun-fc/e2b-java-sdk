@@ -61,7 +61,10 @@ public class Git {
      */
     public GitStatus status(String path) {
         CommandResult result = commands.run("git -C " + path + " status --porcelain=v2 --branch");
-        return parseGitStatus(result.getStdout());
+        GitStatus status = parseGitStatus(result.getStdout());
+        status.setRequestId(result.getRequestId());
+        status.setHeaders(result.getHeaders());
+        return status;
     }
 
     /**
@@ -69,7 +72,10 @@ public class Git {
      */
     public GitBranches branches(String path) {
         CommandResult result = commands.run("git -C " + path + " branch --all");
-        return parseGitBranches(result.getStdout());
+        GitBranches branches = parseGitBranches(result.getStdout());
+        branches.setRequestId(result.getRequestId());
+        branches.setHeaders(result.getHeaders());
+        return branches;
     }
 
     /**

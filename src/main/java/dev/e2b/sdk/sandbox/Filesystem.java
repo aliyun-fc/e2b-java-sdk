@@ -1,9 +1,15 @@
 package dev.e2b.sdk.sandbox;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import dev.e2b.sdk.client.ApiResponse;
 import dev.e2b.sdk.client.E2bApiClient;
 import dev.e2b.sdk.exception.SandboxException;
 import dev.e2b.sdk.model.EntryInfo;
+import dev.e2b.sdk.model.ExistsOutput;
+import dev.e2b.sdk.model.ListEntriesOutput;
+import dev.e2b.sdk.model.MakeDirOutput;
+import dev.e2b.sdk.model.ReadFileOutput;
+import dev.e2b.sdk.model.RemoveFileOutput;
 import dev.e2b.sdk.model.WriteInfo;
 import lombok.RequiredArgsConstructor;
 import okhttp3.*;
@@ -36,19 +42,24 @@ public class Filesystem {
     /**
      * Read a file as a UTF-8 string.
      */
-    public String read(String path, String user) {
-        byte[] raw = readBytes(path, user);
-        return new String(raw, StandardCharsets.UTF_8);
+    public ReadFileOutput read(String path, String user) {
+        ReadFileOutput raw = readBytes(path, user);
+        return ReadFileOutput.builder()
+                .text(new String(raw.getBytes() != null ? raw.getBytes() : new byte[0], StandardCharsets.UTF_8))
+                .bytes(raw.getBytes())
+                .requestId(raw.getRequestId())
+                .headers(raw.getHeaders())
+                .build();
     }
 
-    public String read(String path) {
+    public ReadFileOutput read(String path) {
         return read(path, null);
     }
 
     /**
      * Read a file as raw bytes (uses REST endpoint {@code /files}).
      */
-    public byte[] readBytes(String path, String user) {
+    public ReadFileOutput readBytes(String path, String user) {
         HttpUrl url = buildFileUrl(path, user);
         Request req = new Request.Builder()
                 .url(url)
@@ -57,7 +68,12 @@ public class Filesystem {
                 .build();
         try (Response resp = api.httpClient().newCall(req).execute()) {
             handleError(resp, "read");
-            return resp.body() != null ? resp.body().bytes() : new byte[0];
+            byte[] bytes = resp.body() != null ? resp.body().bytes() : new byte[0];
+            return ReadFileOutput.builder()
+                    .bytes(bytes)
+                    .requestId(ApiResponse.requestIdFrom(resp.headers()))
+                    .headers(ApiResponse.headersAsMap(resp.headers()))
+                    .build();
         } catch (IOException e) {
             throw new SandboxException("Failed to read file: " + path, e);
         }
@@ -102,7 +118,8 @@ public class Filesystem {
             String body = resp.body() != null ? resp.body().string() : "[]";
             JsonNode root = api.mapper.readTree(body);
             JsonNode target = root.isArray() && root.size() > 0 ? root.get(0) : root;
-            return api.mapper.treeToValue(target, WriteInfo.class);
+            WriteInfo info = api.mapper.treeToValue(target, WriteInfo.class);
+            return attachMeta(info, resp.headers());
         } catch (IOException e) {
             throw new SandboxException("Failed to write file: " + path, e);
         }
@@ -134,7 +151,7 @@ public class Filesystem {
      *
      * <p>Response shape is {@code {"entries": [EntryInfo, ...]}}.
      */
-    public List<EntryInfo> list(String path, Integer depth, String user) {
+    public ListEntriesOutput list(String path, Integer depth, String user) {
         StringBuilder json = new StringBuilder("{\"path\":").append(q(path));
         if (depth != null) json.append(",\"depth\":").append(depth);
         if (user  != null) json.append(",\"user\":").append(q(user));
@@ -152,29 +169,41 @@ public class Filesystem {
                     result.add(api.mapper.treeToValue(node, EntryInfo.class));
                 }
             }
-            return result;
+            return ListEntriesOutput.builder()
+                    .entries(result)
+                    .requestId(ApiResponse.requestIdFrom(resp.headers()))
+                    .headers(ApiResponse.headersAsMap(resp.headers()))
+                    .build();
         } catch (IOException e) {
             throw new SandboxException("Failed to list directory: " + path, e);
         }
     }
 
-    public List<EntryInfo> list(String path) {
+    public ListEntriesOutput list(String path) {
         return list(path, 1, null);
     }
 
     /**
      * Check if a path exists.
      */
-    public boolean exists(String path, String user) {
+    public ExistsOutput exists(String path, String user) {
         try {
-            getInfo(path, user);
-            return true;
+            EntryInfo info = getInfo(path, user);
+            return ExistsOutput.builder()
+                    .exists(true)
+                    .requestId(info.getRequestId())
+                    .headers(info.getHeaders())
+                    .build();
         } catch (SandboxException e) {
-            return false;
+            return ExistsOutput.builder()
+                    .exists(false)
+                    .requestId(e.getRequestId())
+                    .headers(e.getHeaders())
+                    .build();
         }
     }
 
-    public boolean exists(String path) {
+    public ExistsOutput exists(String path) {
         return exists(path, null);
     }
 
@@ -192,7 +221,7 @@ public class Filesystem {
         try (Response resp = api.httpClient().newCall(req).execute()) {
             handleError(resp, "getInfo");
             String body = resp.body() != null ? resp.body().string() : "{}";
-            return extractEntry(body);
+            return attachMeta(extractEntry(body), resp.headers());
         } catch (IOException e) {
             throw new SandboxException("Failed to stat: " + path, e);
         }
@@ -205,7 +234,7 @@ public class Filesystem {
     /**
      * Remove a file or directory (Connect: {@code /filesystem.Filesystem/Remove}).
      */
-    public void remove(String path, String user) {
+    public RemoveFileOutput remove(String path, String user) {
         StringBuilder json = new StringBuilder("{\"path\":").append(q(path));
         if (user != null) json.append(",\"user\":").append(q(user));
         json.append("}");
@@ -213,13 +242,17 @@ public class Filesystem {
         Request req = buildConnectRequest("/filesystem.Filesystem/Remove", json.toString(), user);
         try (Response resp = api.httpClient().newCall(req).execute()) {
             handleError(resp, "remove");
+            return RemoveFileOutput.builder()
+                    .requestId(ApiResponse.requestIdFrom(resp.headers()))
+                    .headers(ApiResponse.headersAsMap(resp.headers()))
+                    .build();
         } catch (IOException e) {
             throw new SandboxException("Failed to remove: " + path, e);
         }
     }
 
-    public void remove(String path) {
-        remove(path, null);
+    public RemoveFileOutput remove(String path) {
+        return remove(path, null);
     }
 
     /**
@@ -237,7 +270,7 @@ public class Filesystem {
         try (Response resp = api.httpClient().newCall(req).execute()) {
             handleError(resp, "rename");
             String body = resp.body() != null ? resp.body().string() : "{}";
-            return extractEntry(body);
+            return attachMeta(extractEntry(body), resp.headers());
         } catch (IOException e) {
             throw new SandboxException("Failed to rename " + oldPath + " -> " + newPath, e);
         }
@@ -250,7 +283,7 @@ public class Filesystem {
     /**
      * Create a directory (Connect: {@code /filesystem.Filesystem/MakeDir}).
      */
-    public boolean makeDir(String path, String user) {
+    public MakeDirOutput makeDir(String path, String user) {
         StringBuilder json = new StringBuilder("{\"path\":").append(q(path));
         if (user != null) json.append(",\"user\":").append(q(user));
         json.append("}");
@@ -258,13 +291,17 @@ public class Filesystem {
         Request req = buildConnectRequest("/filesystem.Filesystem/MakeDir", json.toString(), user);
         try (Response resp = api.httpClient().newCall(req).execute()) {
             handleError(resp, "makeDir");
-            return resp.isSuccessful();
+            return MakeDirOutput.builder()
+                    .created(resp.isSuccessful())
+                    .requestId(ApiResponse.requestIdFrom(resp.headers()))
+                    .headers(ApiResponse.headersAsMap(resp.headers()))
+                    .build();
         } catch (IOException e) {
             throw new SandboxException("Failed to makeDir: " + path, e);
         }
     }
 
-    public boolean makeDir(String path) {
+    public MakeDirOutput makeDir(String path) {
         return makeDir(path, null);
     }
 
@@ -283,6 +320,14 @@ public class Filesystem {
         JsonNode root = api.mapper.readTree(body);
         JsonNode entry = root.get("entry");
         return api.mapper.treeToValue(entry != null ? entry : root, EntryInfo.class);
+    }
+
+    private static <T extends WriteInfo> T attachMeta(T info, Headers headers) {
+        if (info != null) {
+            info.setRequestId(ApiResponse.requestIdFrom(headers));
+            info.setHeaders(ApiResponse.headersAsMap(headers));
+        }
+        return info;
     }
 
     private HttpUrl buildFileUrl(String path, String user) {
@@ -313,7 +358,11 @@ public class Filesystem {
     private void handleError(Response resp, String op) throws IOException {
         if (!resp.isSuccessful()) {
             String body = resp.body() != null ? resp.body().string() : "";
-            throw new SandboxException("Filesystem." + op + " failed (" + resp.code() + "): " + body);
+            throw new SandboxException(
+                    "Filesystem." + op + " failed (" + resp.code() + "): " + body,
+                    resp.code(),
+                    ApiResponse.requestIdFrom(resp.headers()),
+                    ApiResponse.headersAsMap(resp.headers()));
         }
     }
 

@@ -123,7 +123,7 @@ class VpcNasE2eTest extends E2eTestBase {
 
             String testPath = testDir + "/hello.txt";
             sandbox.getFiles().write(testPath, "nas verify\n");
-            assertEquals("nas verify", sandbox.getFiles().read(testPath).trim());
+            assertEquals("nas verify", sandbox.getFiles().read(testPath).getText().trim());
         } finally {
             E2eSupport.killQuietly(sandbox);
         }

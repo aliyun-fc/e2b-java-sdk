@@ -76,7 +76,7 @@ class JuiceFsE2eTest extends E2eTestBase {
             String marker = "juicefs verify " + UUID.randomUUID();
             String testPath = mountDir + "/e2b-test-" + UUID.randomUUID().toString().substring(0, 8) + ".txt";
             sandbox.getFiles().write(testPath, marker + "\n");
-            assertEquals(marker, sandbox.getFiles().read(testPath).trim());
+            assertEquals(marker, sandbox.getFiles().read(testPath).getText().trim());
         } finally {
             E2eSupport.killQuietly(sandbox);
         }

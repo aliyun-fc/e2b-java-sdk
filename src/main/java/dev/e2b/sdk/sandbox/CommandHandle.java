@@ -5,6 +5,8 @@ import dev.e2b.sdk.exception.SandboxException;
 import dev.e2b.sdk.model.CommandResult;
 import okhttp3.Call;
 
+import java.util.Collections;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -23,16 +25,31 @@ public class CommandHandle {
     private final int pid;
     private final CompletableFuture<CommandResult> result;
     private final Call call;
+    private final String requestId;
+    private final Map<String, String> headers;
 
-    CommandHandle(int pid, CompletableFuture<CommandResult> result, Call call) {
+    CommandHandle(int pid, CompletableFuture<CommandResult> result, Call call,
+                  String requestId, Map<String, String> headers) {
         this.pid = pid;
         this.result = result;
         this.call = call;
+        this.requestId = requestId;
+        this.headers = headers == null ? Collections.emptyMap() : headers;
     }
 
     /** OS process id of the background command (assigned by envd at start). */
     public int getPid() {
         return pid;
+    }
+
+    /** Request id from the Start response headers. */
+    public String getRequestId() {
+        return requestId;
+    }
+
+    /** Full HTTP response headers from the Start call. */
+    public Map<String, String> getHeaders() {
+        return headers;
     }
 
     /** True once the process has exited and the final result is available. */

@@ -2,7 +2,11 @@ package dev.e2b.sdk.model;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+
 @Data
 @NoArgsConstructor
 public class GitStatus {
@@ -12,6 +16,9 @@ public class GitStatus {
     private int behind;
     private boolean detached;
     @JsonProperty("file_status") private List<GitFileStatus> fileStatus;
+    private String requestId;
+    private Map<String, String> headers = Collections.emptyMap();
+
     public boolean isClean() { return fileStatus == null || fileStatus.isEmpty(); }
     public boolean hasChanges() { return !isClean(); }
     public long getStagedCount() { return fileStatus == null ? 0 : fileStatus.stream().filter(GitFileStatus::isStaged).count(); }
