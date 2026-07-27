@@ -4,8 +4,6 @@ Java SDK for [阿里云云沙箱 (FC Agent Sandbox)](https://aliyun-fc.github.io
 
 云沙箱原生兼容 E2B。本 SDK 是其 Java 客户端,让你可以在 JVM 上创建并控制沙箱:执行命令、读写文件、运行代码 (Code Interpreter)、构建模板、暂停/恢复等。
 
-> **地域**:云沙箱目前仅支持华北2(北京)。
-
 ## Quickstart
 
 ### 1. Install
