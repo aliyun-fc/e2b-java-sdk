@@ -1,0 +1,232 @@
+#!/bin/bash
+
+export PATH="/usr/kerberos/bin:/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/bin:/usr/bin:/usr/X11R6/bin:$PATH"
+func_define(){
+    . /etc/cloudy2.conf
+    HSF_PACKAGE=`ls -1tr $PACKAGE_DIR | grep 'taobao-hsf.tgz' | tail -1`
+    APP_PACKAGE=`ls -1tr $PACKAGE_DIR | grep '____' | tail -1`
+    APP_NAME=`echo $APP_PACKAGE | awk -F\____ '{print $1}'`
+    CONTAINER=`echo $APP_PACKAGE | awk -F\____ '{print $2}' | awk -F\. '{print $2}'`
+    CONTAINER_PORT=18080
+    if [[ $CONTAINER = php-fpm || $CONTAINER = jetty ]];then
+        PROGRAM_DIR=/alidata/www/wwwroot
+    else
+        PROGRAM_DIR=$APP_DIR/$CONTAINER
+    fi
+}
+export func_define
+
+func_isexist_dir(){
+    [[ ! -d $BACKUP_DIR ]] && sudo mkdir -p $BACKUP_DIR; sudo chown -R appadmin $BACKUP_DIR
+    [[ ! -d $PROGRAM_DIR ]] && sudo mkdir -p $PROGRAM_DIR; sudo chown -R appadmin $PROGRAM_DIR
+    [[ ! -d $APP_TMP_DIR ]] && sudo mkdir -p $APP_TMP_DIR; sudo chown www $APP_TMP_DIR;sudo chmod 777 $APP_TMP_DIR
+    [[ ! -d $APP_DATA_DIR ]] && sudo mkdir -p $APP_DATA_DIR; sudo chown www $APP_DATA_DIR;sudo chmod 777 $APP_DATA_DIR
+    [[ ! -d $APP_CACHE_DIR ]] && sudo mkdir -p $APP_CACHE_DIR; sudo chown www $APP_CACHE_DIR;sudo chmod 777 $APP_CACHE_DIR
+    [[ ! -d $APP_LOG_DIR ]] && sudo mkdir -p $APP_LOG_DIR; sudo chown www $APP_LOG_DIR;sudo chmod 777 $APP_LOG_DIR
+}
+
+func_unzip_app_package(){
+    APP_RANDOM_FILE=/dev/shm/`date '+%y%m%d%H%M%S'`$RANDOM
+    [[ -f $BACKUP_DIR/${APP_PACKAGE}__tmp ]] && mv $BACKUP_DIR/${APP_PACKAGE}__tmp $BACKUP_DIR/${APP_PACKAGE}
+    echo "cp ${PACKAGE_DIR}/$APP_PACKAGE $APP_RANDOM_FILE"
+    cp ${PACKAGE_DIR}/$APP_PACKAGE $APP_RANDOM_FILE || return 8
+    echo "cp ${PACKAGE_DIR}/$APP_PACKAGE $BACKUP_DIR/${APP_PACKAGE}__tmp" >> $CLOUDY2_LOG
+    cp ${PACKAGE_DIR}/$APP_PACKAGE $BACKUP_DIR/${APP_PACKAGE}__tmp
+    echo "tar zxvf $APP_RANDOM_FILE"
+    tar zxvf $APP_RANDOM_FILE >> $CLOUDY2_LOG || return 8
+    echo "rm -f $APP_RANDOM_FILE"
+    rm -f $APP_RANDOM_FILE || return 8
+    echo "cd $APP_NAME"
+    cd $APP_NAME || return 8
+    echo 'cd ..'
+    cd .. || return 8
+}
+
+func_unzip_hsf_package(){
+    HSF_RANDOM_FILE=/dev/shm/`date '+%y%m%d%H%M%S'`$RANDOM
+    [[ -f $BACKUP_DIR/${HSF_PACKAGE}__tmp ]] && mv $BACKUP_DIR/${HSF_PACKAGE}__tmp $BACKUP_DIR/${HSF_PACKAGE}
+    echo "cp ${PACKAGE_DIR}/$HSF_PACKAGE $HSF_RANDOM_FILE"
+    cp ${PACKAGE_DIR}/$HSF_PACKAGE $HSF_RANDOM_FILE || return 8
+    echo "cp ${PACKAGE_DIR}/$HSF_PACKAGE $BACKUP_DIR/${HSF_PACKAGE}__tmp" >> $CLOUDY2_LOG
+    cp ${PACKAGE_DIR}/$HSF_PACKAGE $BACKUP_DIR/${HSF_PACKAGE}__tmp
+    echo "tar zxvf $HSF_RANDOM_FILE"
+    tar zxvf $HSF_RANDOM_FILE >> $CLOUDY2_LOG || return 8
+    echo "rm -f $HSF_RANDOM_FILE"
+    rm -f $HSF_RANDOM_FILE || return 8
+    echo "cd taobao-hsf.sar"
+    cd taobao-hsf.sar || return 8
+    echo 'cd ..'
+    cd .. || return 8
+}
+
+func_rsync_app(){
+    echo "rsync -varlopgtz --delete --progress $APP_NAME/ $PROGRAM_DIR/$APP_NAME"
+    rsync -varlopgtz  --delete --progress $APP_NAME/ $PROGRAM_DIR/$APP_NAME >> $CLOUDY2_LOG || return 8
+    echo "rm -rf $APP_NAME"
+    rm -rf $APP_NAME
+}
+
+func_rsync_hsf(){
+    echo "rsync -varlopgtz --delete --progress taobao-hsf.sar/ $PROGRAM_DIR/taobao-hsf.sar"
+    rsync -varlopgtz  --delete --progress taobao-hsf.sar/ $PROGRAM_DIR/taobao-hsf.sar >> $CLOUDY2_LOG || return 8
+    echo "rm -rf taobao-hsf.sar"
+    rm -rf taobao-hsf.sar
+}
+
+func_disable_rs(){
+    if [[ -f /usr/share/tengine/html/status.html ]];then
+        echo "rm -f /usr/share/tengine/html/status.html"
+        sudo rm -f /usr/share/tengine/html/status.html
+        sleep 30
+    ps -ef|grep -E "tengi[n]e" >/dev/null&&sudo /etc/init.d/tengine stop
+    fi
+}
+
+func_enable_rs(){
+    if [[ ! -f /usr/share/tengine/html/status.html ]];then
+        echo "touch /usr/share/tengine/html/status.html"
+        sudo touch /usr/share/tengine/html/status.html
+    fi
+    sudo /etc/init.d/tengine start || return 8
+}
+
+func_stop_php(){
+    echo "sudo /etc/init.d/php-fpm stop"
+    sudo /etc/init.d/php-fpm stop || return 8
+}
+
+func_start_php(){
+    echo "sudo /etc/init.d/php-fpm start"
+    sudo /etc/init.d/php-fpm start || return 8
+    sudo /sbin/chkconfig php-fpm on
+}
+
+func_stop_app(){
+    echo "sudo /etc/init.d/${CONTAINER} stop"
+    sudo /etc/init.d/${CONTAINER} stop > /var/tmp/${CONTAINER}.tMp
+    export STOP_COUNT=0
+    while true;do
+        export STOP_COUNT=`expr $STOP_COUNT + 1`
+        sleep 1
+        if [[ `nmap 127.0.0.1 -p ${CONTAINER_PORT} | grep open` = '' && `ps -ef | grep -w $CONTAINER | grep -v grep` = '' ]];then
+            echo -e "\nstop ${CONTAINER} successful"
+            break
+        else
+            if [[ $STOP_COUNT -ge 29 ]];then
+                CONTAINER_PID=`ps -ef | grep -w $CONTAINER | grep -v grep | awk '{print $2}'`
+                [[ ! -z $CONTAINER_PID ]] && sudo kill -9 $CONTAINER_PID
+            fi
+            if [[ $STOP_COUNT -ge 30 ]];then
+                sudo killall -9 java
+            fi
+        fi
+        echo -e " . \c "
+    done
+}
+
+func_start_app(){
+    echo "sudo /etc/init.d/${CONTAINER} start"
+    sudo /etc/init.d/${CONTAINER} start > /var/tmp/${CONTAINER}.tMp &
+    export START_COUNT=0
+    while true;do
+        export START_COUNT=`expr $START_COUNT + 1`
+        sleep 1
+        if [[ `nmap 127.0.0.1 -p ${CONTAINER_PORT} | grep open` != '' ]];then
+            sleep 1
+            if [[ `curl --connect-timeout 10 --retry 2 -m 30 http://127.0.0.1:${CONTAINER_PORT}/$APP_NAME/check_health 2>/dev/null` = 'ok' ]];then
+                echo -e "\nstart ${CONTAINER} successful"
+                break
+            else
+                sleep 10
+                if [[ `curl --connect-timeout 10 --retry 2 -m 30 http://127.0.0.1:${CONTAINER_PORT}/$APP_NAME/check_health 2>/dev/null` = 'ok' ]];then
+                    echo -e "\nstart ${CONTAINER} successful"
+                    break
+                else
+                    echo -e "\nERROR: check health fault, start ${CONTAINER} fault. Please check ${CONTAINER} log on http://viewlog.alibaba.net for test or http://viewlog.aliyun-inc.com for prod"
+                    return 8
+                fi
+            fi
+        else
+            if [[ $START_COUNT -ge 300 ]];then
+                echo -e "\nERROR: check $CONTAINER_PORT fault, start ${CONTAINER} fault. Please check ${CONTAINER} log on http://viewlog.alibaba.net for test or http://viewlog.aliyun-inc.com for prod."
+                return 8
+            fi
+        fi
+        echo -e " . \c "
+    done
+    sudo /sbin/chkconfig ${CONTAINER} on
+}
+
+func_main(){
+    CONTROL=0
+    echo "cd $DEPLOY_DIR"
+    cd $DEPLOY_DIR
+    if [[ -d $APP_NAME ]];then
+        echo "rm -rf $APP_NAME"
+        rm -rf $APP_NAME
+    fi
+    if [[ ! -f $PACKAGE_DIR/$APP_PACKAGE ]];then
+        echo "ERROR: Can't find any correct app package."
+        CONTROL=1
+    fi
+    if [[ $CONTROL = 0 ]];then
+        func_isexist_dir || CONTROL=1
+    fi
+    if [[ $CONTROL = 0 ]];then
+        if [[ -f $PACKAGE_DIR/$APP_PACKAGE ]];then
+            func_unzip_app_package || CONTROL=1
+        fi
+    fi
+    if [[ $CONTROL = 0 ]];then
+        if [[ -f $PACKAGE_DIR/$HSF_PACKAGE && $CONTAINER = tomcat7 ]];then
+            func_unzip_hsf_package || CONTROL=1
+        fi
+    fi
+    if [[ $CONTROL = 0 ]];then
+        func_disable_rs || CONTROL=1
+    fi
+    if [[ $CONTROL = 0 ]];then
+        if [[ $CONTAINER = php-fpm ]];then
+            func_stop_php || CONTROL=1
+        else
+            func_stop_app || CONTROL=1
+        fi
+    fi
+    if [[ $CONTROL = 0 ]];then
+        if [[ -f $PACKAGE_DIR/$APP_PACKAGE ]];then
+            func_rsync_app || CONTROL=1
+        fi
+    fi
+    if [[ $CONTROL = 0 ]];then
+        if [[ -f $PACKAGE_DIR/$HSF_PACKAGE && $CONTAINER = tomcat7 ]];then
+            func_rsync_hsf || CONTROL=1
+        fi
+    fi
+    if [[ $CONTROL = 0 ]];then
+        if [[ $CONTAINER = php-fpm ]];then
+            func_start_php || CONTROL=1
+        else
+            func_start_app || CONTROL=1
+        fi
+    fi
+    if [[ $CONTROL = 0 ]];then
+        func_enable_rs || CONTROL=1
+    fi
+    echo $CONTROL > /var/tmp/cloudy2.tmp
+}
+
+
+
+if [[ ! -d /var/log/cloudy2 ]];then
+    mkdir -p /var/log/cloudy2
+fi
+if [[ ! -f /etc/cloudy2.conf ]];then
+    echo "ERROR: /etc/cloudy2.conf: No such file or directory" | tee -a $CLOUDY2_LOG
+    return 8
+fi
+func_define
+echo -e "\n====================================== \n`date '+%Y-%m-%d %H:%M:%S'` \n" | tee -a $CLOUDY2_LOG
+func_main | tee -a $CLOUDY2_LOG
+RETURN=`cat /var/tmp/cloudy2.tmp`
+rm -rf /var/tmp/cloudy2.tmp
+exit $RETURN

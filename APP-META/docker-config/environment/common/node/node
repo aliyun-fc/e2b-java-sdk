@@ -1,0 +1,181 @@
+#!/bin/bash
+# chkconfig: - 80 20
+# description: node This shell script takes care of starting and stopping node
+export PATH=/bin:/usr/bin:$PATH
+BASE_HOME="/alidata/www"
+echo "BASE_HOME=$BASE_HOME"
+PROJECT_ROOT="${BASE_HOME}/apps/node"
+echo "PROJECT_ROOT=$PROJECT_ROOT"
+PROJECT_NAME=`ls -1tr $PROJECT_ROOT | head -1`
+echo "PROJECT_NAME=$PROJECT_NAME"
+NODEJS_BIN=/opt/taobao/install/node.js/bin/node
+echo "NODEJS_BIN=$NODEJS_BIN"
+STDOUT_LOG=${BASE_HOME}/logs/node/nodejs_stdout.log
+echo "STDOUT_LOG=$STDOUT_LOG"
+CUSTOM_APPCTL=""
+
+NODEJS_APP_DIR=$PROJECT_ROOT/${PROJECT_NAME}
+echo "NODEJS_APP_DIR=$NODEJS_APP_DIR"
+
+checkuser() {
+    user=`id -nu`
+    if [[ ${user} != 'root' ]]; then
+        echo "Stop! Only root can run this script!"
+        exit 3
+    fi
+}
+
+PROG_NAME=$0
+echo "PROG_NAME=$PROG_NAME"
+ACTION=$1
+usage() {
+    echo "Usage: $PROG_NAME {start|stop|status|pubstart|restart|online|offline|deploy}"
+    exit 1;
+}
+
+checkuser
+
+if [[ $# -lt 1 ]]; then
+    usage
+fi
+
+function get_pid {
+    PID=`ps ax | grep ${NODEJS_BIN} | grep -v grep | grep ${PROJECT_NAME} | awk '{print $1}'`
+}
+
+function prepare {
+    # support http://gitlab.alibaba-inc.com/node/tnpm/merge_requests/23
+    CUSTOM_NODEJS_BIN=${NODEJS_APP_DIR}/node_modules/node/bin/node
+    if [[ -f ${CUSTOM_NODEJS_BIN} ]]; then
+        NODEJS_BIN=${CUSTOM_NODEJS_BIN}
+    fi
+
+    # /home/admin/%AppName%/target/%AppName%/node_modules/.bin/appctl
+    if [[ -f ${NODEJS_APP_DIR}/node_modules/.bin/appctl ]]; then
+        CUSTOM_APPCTL=${NODEJS_APP_DIR}/node_modules/.bin/appctl
+    fi
+
+    # 业务自己提供的脚本优先级更高
+    # /home/admin/%AppName%/target/%AppName%/bin/appctl.sh
+    if [[ -f ${NODEJS_APP_DIR}/bin/appctl.sh ]]; then
+        CUSTOM_APPCTL=${NODEJS_APP_DIR}/bin/appctl.sh
+    fi
+
+    for portal in '/bin/server.js' '/dispatch.js' ; do
+        if [[ -f ${NODEJS_APP_DIR}$portal ]] ; then
+            PORTAL=$portal
+            break
+        fi
+    done
+
+    get_pid
+}
+
+check_errs(){
+  if [ "${1}" -ne "0" ]; then
+    echo "ERROR # ${1} : ${2}"
+    exit ${1}
+  fi
+}
+
+#start nodejs
+start(){
+    prepare
+    # TODO
+
+    if [[ -z $PID ]]; then
+        echo "Starting ${PROJECT_NAME} ..."
+        if [[ -f ${CUSTOM_APPCTL} ]]; then
+            echo "${CUSTOM_APPCTL} start"
+            bash ${CUSTOM_APPCTL} start >> $STDOUT_LOG 2>&1 &
+            wait $!
+            check_errs ${PIPESTATUS[0]} "Failed to start nodejs, please see ${STDOUT_LOG}"
+        else
+            echo "Using node@`${NODEJS_BIN} -v`(${NODEJS_BIN})."
+            cd ${NODEJS_APP_DIR}
+            setenv
+            NODE_RUN="ulimit -c unlimited ; ENABLE_NODE_LOG=YES NODE_LOG_DIR=${BASE_HOME}/logs/node/ NODE_ENV=${NODE_ENV} nohup ${NODEJS_BIN} ${NODEJS_APP_DIR}${PORTAL} >> $STDOUT_LOG 2>&1 &"
+            echo "NODE RUN:"
+            echo ${NODE_RUN}
+            sudo -u admin -i sh -c "${NODE_RUN}"
+            sleep 5
+        fi
+        get_pid
+        echo "Start nodejs success. PID=$PID"
+    else
+        echo "${PROJECT_NAME} is already running, PID=$PID"
+    fi
+}
+
+stop(){
+    prepare
+
+    if [[ ! -z "$PID" ]]; then
+        echo "Waiting ${PROJECT_NAME} stop for 5s ..."
+        if [[ -f ${CUSTOM_APPCTL} ]]; then
+            echo "${CUSTOM_APPCTL} stop"
+            bash ${CUSTOM_APPCTL} stop
+        else
+            kill -15 $PID
+            sleep 5
+        fi
+        node_num=`ps ax | grep ${NODEJS_BIN} |grep -v grep| grep ${PROJECT_NAME}|wc -l`
+        if [[ $node_num != 0 ]]; then
+            ps ax | grep ${NODEJS_BIN} |grep -v grep| grep ${PROJECT_NAME}|grep -v nodejsctl|awk '{print $2}'|xargs kill -9
+            ipcs -s | grep 0x | awk '{print $2}' | xargs -n1 ipcrm -s  > /dev/null 2>&1
+            ipcs -m | grep 0x | awk '{print $2}' | xargs -n1 ipcrm -m  > /dev/null 2>&1
+        fi
+        mv -f $STDOUT_LOG "${STDOUT_LOG}.`date '+%Y%m%d%H%M%S'`"
+    else
+        echo "${PROJECT_NAME} is not running"
+    fi
+}
+# used to check the whole app is working fine.
+# if you want to just check node start up please used preload.sh
+status(){
+    if [[ -f ${NODEJS_APP_DIR}/bin/appctl.sh ]]; then
+        echo "Now check ${NODEJS_APP_DIR}/bin/appctl.sh status..."
+        sh ${NODEJS_APP_DIR}/bin/appctl.sh status
+    else
+        prepare
+        if [[ ! -z $PID ]]; then
+            echo "PID: $PID"
+            curl "http://127.0.0.1:18080/${PROJECT_NAME}/check_health"
+            ps -ef | grep $PID
+        else
+            echo "${PROJECT_NAME} is not running"
+        fi
+    fi
+}
+
+setenv () {
+    if [ -f ${NODEJS_APP_DIR}/bin/.env ]; then
+        NODE_ENV=$(cat ${NODEJS_APP_DIR}/bin/.env)
+        echo "Using NODE_ENV from ${NODEJS_APP_DIR}/bin/.env: ${NODE_ENV}"
+    elif [ -f ${NODEJS_APP_DIR}/.env ]; then
+        NODE_ENV=$(cat ${NODEJS_APP_DIR}/.env)
+        echo "Using NODE_ENV from ${NODEJS_APP_DIR}/.env: ${NODE_ENV}"
+    else
+        NODE_ENV="production"
+        echo "Using default NODE_ENV: production"
+    fi
+}
+
+case "$ACTION" in
+    start)
+        start
+    ;;
+    status)
+        status
+    ;;
+    stop)
+        stop
+    ;;
+    restart)
+        stop
+        start
+    ;;
+    *)
+        usage
+    ;;
+esac

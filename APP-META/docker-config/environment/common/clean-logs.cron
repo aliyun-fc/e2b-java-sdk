@@ -1,0 +1,2 @@
+40 3 * * * root find /disk1/alidata/www/logs/ -regextype posix-extended -regex ".*[0-9]|.*[0-9].log|.*[0-9].gz|.*20.*gz|.*[0-9].[A-Za-z]*.log" -type f -mtime +3 -exec rm -f {} \; >/dev/null 2>&1
+50 3 * * * root find /home/www/logs/ /home/admin/logs/ /home/tomcat/logs/ /usr/share/jetty/logs/ /home/staragent/log/ -regextype posix-extended -regex ".*[0-9]|.*[0-9].log|.*[0-9].gz|.*20.*gz|.*[0-9].[A-Za-z]*.log" -type f -mtime +2 -exec rm -f {} \; >/dev/null 2>&1

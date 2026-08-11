@@ -1,0 +1,105 @@
+# 基于阿里云标准环境镜像
+FROM reg.docker.alibaba-inc.com/aliyun-official/aliyunstandard:7u2
+
+ARG APP_NAME
+ENV APP_NAME=${APP_NAME}
+
+# 指定实际需要的pandora版本
+ARG sar_version=2018-09-stable-configclient-switch
+
+# ###########################################
+# ######## JAVA + TOMCAT 应用需要做的事 #######
+# ###########################################
+
+# 1. 下载sar包及检验md5是否正确
+RUN wget -qc -O /alidata/www/package/taobao-hsf.tgz "http://pandora.alibaba-inc.com/pandora-web/sar/$sar_version/taobao-hsf.tgz" && \
+onlineMd5=`curl --silent "http://pandora.alibaba-inc.com/pandora-web/api/getSar.do?version=${sar_version}" | grep -Po '(?<="md5":")[0-9a-z]+'`; \
+    localMd5=`md5sum /alidata/www/package/taobao-hsf.tgz | awk '{print $1}'`; \
+    if [ "$onlineMd5" != "$localMd5" ]; then \
+        echo "taobao-hsf.sar md5 check failed! expect $onlineMd5, but $localMd5"; \
+        exit 1;  \
+    fi
+
+# 2. 更新tomcat配置(如需)
+# 2.1 修改JVM启动参数--environment/staging/tomcat/tomcat7.conf
+
+# 2.2 修改tomcat配置文件server.xml --environment/staging/tomcat/server.xml
+
+# 2.3 复制修改过的配置文件到镜像中(如无修改，不需要复制，镜像中已有)
+# COPY environment/staging/tomcat/tomcat7.conf /opt/taobao/tomcat/conf/tomcat7.conf
+# COPY environment/staging/tomcat/server.xml /opt/taobao/tomcat/conf/server.xml
+
+
+# ###########################################
+# ######### JAVA + JETTY 应用需要做的事 #######
+# ###########################################
+# 1. 修改JVM启动参数(如需)--environment/staging/jetty/start.ini
+
+# 2. 修改jetty配置文件jetty.xml(如需)--environment/staging/jetty/jetty.xml
+
+# 3. 复制修改过的配置文件到镜像中(如无修改，不需要复制，镜像中已有)
+# COPY environment/staging/jetty/start.ini /etc/jetty/start.ini
+# COPY environment/staging/jetty/jetty.xml /etc/jetty/jetty.xml
+
+
+# ###########################################
+# ############ NODE 应用需要做的事 ############
+# ###########################################
+# 拷贝修改过的node启动脚本及配置文件(如无修改，不需要复制，镜像中已有)
+# COPY environment/common/node/node /etc/init.d/node
+# COPY environment/common/node/nodecat.conf /etc/node/nodecat.conf
+
+
+# ###########################################
+# ############## TENGINE 相关 ###############
+# ###########################################
+# 将应用的健康检查文件复制到镜像中
+COPY environment/staging/tengine/check_health.conf /etc/tengine/check_health.conf
+RUN sed -i "s/example-aliyun-com/${APP_NAME}/g" /etc/tengine/check_health.conf
+
+# 将应用tengine配置等复制到镜像中(如无修改，不需要复制，镜像中已有)
+# COPY environment/staging/tengine/tengine.conf /etc/tengine/tengine.conf
+# COPY environment/staging/tengine/taobao-beacon.cfg /etc/tengine/taobao-beacon.cfg
+# 将域名配置文件复制到镜像中(如有配置)
+# COPY environment/staging/tengine/conf.d/ /etc/tengine/conf.d/
+# 将域名证书文件复制到镜像中(如有)
+# COPY environment/staging/tengine/cert/ /etc/tengine/cert/
+# 将lua脚本文件复制到镜像中(如无修改，不需要复制，镜像中已有)
+# COPY environment/staging/tengine/init_by_lua_file.lua /etc/tengine/init_by_lua_file.lua
+
+
+# ###########################################
+# ################ TMD 相关 #################
+# ###########################################
+COPY environment/staging/tmd/xagent.flags /home/admin/xagent/conf/xagent.flags
+# 注: 以下文件均在镜像中有，如无修改，无需复制
+# COPY environment/staging/tmd/x5_http.conf /opt/taobao/tengine/conf/x5/x5_http.conf
+# COPY environment/staging/tmd/x5_loc.conf /opt/taobao/tengine/conf/x5/x5_loc.conf
+
+
+# ###########################################
+# ############### 基础配置相关 ###############
+# ###########################################
+# 对于弹外(非集团生产网)环境，预发jmenv地址通常通过绑定host实现
+# 配置预发Jmenv地址--"https://yuque.antfin-inc.com/aliyunops/general-specification/72-regionfuwuguifan"
+# ping出jmenv对于的IP地址，替换掉下面1.1.1.1
+# RUN echo "1.1.1.1 jmenv.tbsite.net" >> /etc/hosts
+
+# 将Staragent，tsar等配置文件复制到镜像中(如无修改，不需要复制，镜像中已有)
+# COPY environment/common/staragent.conf /usr/alisys/dragoon/conf/staragent.conf
+# COPY environment/common/tsar.conf /etc/tsar/tsar.conf
+
+
+# ###########################################
+# ############### 启动脚本相关 ###############
+# ###########################################
+# 将应用启动脚本和配置文件复制到镜像中(如无修改，不需要复制，镜像中已有)
+# COPY environment/common/cloudy2 /usr/bin/cloudy2
+# COPY environment/common/cloudy2.conf /etc/cloudy2.conf
+
+# 将构建出的主包复制到指定镜像目录中
+COPY ${APP_NAME}____* /alidata/www/package/
+
+# 容器启动时自动执行的脚本，我们一般会将应用启动脚本放在这里，相当于系统自启应用
+# 注: start.sh 脚本调用 /usr/bin/cloudy2 启动应用
+CMD ["/start.sh"]
