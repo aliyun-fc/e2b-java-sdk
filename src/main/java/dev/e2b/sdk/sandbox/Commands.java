@@ -1,6 +1,7 @@
 package dev.e2b.sdk.sandbox;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import dev.e2b.sdk.Sandbox;
 import dev.e2b.sdk.client.E2bApiClient;
 import dev.e2b.sdk.exception.CommandExitException;
 import dev.e2b.sdk.exception.SandboxException;
@@ -77,6 +78,8 @@ public class Commands {
     private final E2bApiClient api;
     private final String envdUrl;
     private final String accessToken;
+    /** Present when the sandbox restricts public traffic; sent as {@link Sandbox#TRAFFIC_ACCESS_TOKEN_HEADER}. */
+    private final String trafficAccessToken;
 
     /**
      * In-flight background-command streams (from {@link #runBackground}). These are the only calls
@@ -546,6 +549,9 @@ public class Commands {
     private void applyAuth(Request.Builder builder, String user) {
         if (accessToken != null && !accessToken.isEmpty()) {
             builder.header("X-Access-Token", accessToken);
+        }
+        if (trafficAccessToken != null && !trafficAccessToken.isEmpty()) {
+            builder.header(Sandbox.TRAFFIC_ACCESS_TOKEN_HEADER, trafficAccessToken);
         }
         // envd selects the OS user via HTTP Basic auth ("<user>:"). Only sent when an
         // explicit user is requested; modern envd defaults to the standard user otherwise.
