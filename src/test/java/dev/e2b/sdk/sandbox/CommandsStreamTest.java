@@ -1,5 +1,6 @@
 package dev.e2b.sdk.sandbox;
 
+import dev.e2b.sdk.Sandbox;
 import dev.e2b.sdk.client.ConnectionConfig;
 import dev.e2b.sdk.client.E2bApiClient;
 import dev.e2b.sdk.exception.SandboxException;
@@ -61,7 +62,7 @@ class CommandsStreamTest {
                 .setBody(body));
 
         Commands commands = new Commands(api,
-                envd.url("").toString().replaceAll("/$", ""), "tok");
+                envd.url("").toString().replaceAll("/$", ""), "tok", null);
 
         CommandResult result = commands.run("echo 'Hello, World!'");
 
@@ -73,11 +74,32 @@ class CommandsStreamTest {
         RecordedRequest sent = envd.takeRequest();
         assertEquals("/process.Process/Start", sent.getPath());
         assertEquals("tok", sent.getHeader("X-Access-Token"));
+        assertNull(sent.getHeader(Sandbox.TRAFFIC_ACCESS_TOKEN_HEADER));
         // request body is an envelope: skip 5-byte header, the JSON must wrap the command in bash -l -c
         byte[] reqBytes = sent.getBody().readByteArray();
         String reqJson = new String(reqBytes, 5, reqBytes.length - 5, StandardCharsets.UTF_8);
         assertTrue(reqJson.contains("\"/bin/bash\""), "request should invoke /bin/bash: " + reqJson);
         assertTrue(reqJson.contains("echo 'Hello, World!'"), "request should carry the command: " + reqJson);
+    }
+
+    @Test
+    void run_sendsTrafficAccessTokenWhenPresent() throws Exception {
+        Buffer body = new Buffer();
+        body.write(frame(0x00, "{\"event\":{\"end\":{\"exitCode\":0,\"exited\":true}}}"));
+        body.write(frame(0x02, "{}"));
+
+        envd.enqueue(new MockResponse()
+                .setHeader("Content-Type", "application/connect+json")
+                .setBody(body));
+
+        Commands commands = new Commands(api,
+                envd.url("").toString().replaceAll("/$", ""), "tok", "traffic-tok");
+
+        commands.run("echo ok");
+
+        RecordedRequest sent = envd.takeRequest();
+        assertEquals("tok", sent.getHeader("X-Access-Token"));
+        assertEquals("traffic-tok", sent.getHeader(Sandbox.TRAFFIC_ACCESS_TOKEN_HEADER));
     }
 
     @Test
@@ -91,7 +113,7 @@ class CommandsStreamTest {
                 .setBody(body));
 
         Commands commands = new Commands(api,
-                envd.url("").toString().replaceAll("/$", ""), "tok");
+                envd.url("").toString().replaceAll("/$", ""), "tok", null);
 
         CommandResult result = commands.run("exit 7");
         assertEquals(7, result.getExitCode());
@@ -119,7 +141,7 @@ class CommandsStreamTest {
                 .throttleBody(64, 5, TimeUnit.SECONDS));
 
         Commands commands = new Commands(api,
-                envd.url("").toString().replaceAll("/$", ""), "tok");
+                envd.url("").toString().replaceAll("/$", ""), "tok", null);
 
         CommandHandle handle = commands.runBackground("sleep 999");
         assertEquals(42, handle.getPid());

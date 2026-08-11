@@ -40,6 +40,9 @@ public class Sandbox implements AutoCloseable {
     public static final int    DEFAULT_SANDBOX_TIMEOUT = 300;
     public static final String DEFAULT_TEMPLATE        = "base";
 
+    /** HTTP header name required when {@link #trafficAccessToken} is non-null. */
+    public static final String TRAFFIC_ACCESS_TOKEN_HEADER = "e2b-traffic-access-token";
+
     // -------------------------------------------------------------------------
     // State
     // -------------------------------------------------------------------------
@@ -55,6 +58,13 @@ public class Sandbox implements AutoCloseable {
     private final String envdAccessToken;
 
     /**
+     * Token for accessing the sandbox via the proxy when public traffic is restricted
+     * ({@code network.allowPublicTraffic=false}). Null when public access is allowed.
+     * External callers must send {@code e2b-traffic-access-token: <token>}.
+     */
+    private final String trafficAccessToken;
+
+    /**
      * Request identifier ({@code X-Request-ID} or {@code x-fc-request-id}) of the create/connect
      * API call that produced this instance.
      */
@@ -68,7 +78,8 @@ public class Sandbox implements AutoCloseable {
     // -------------------------------------------------------------------------
 
     private Sandbox(SandboxInfo info, ConnectionConfig config, E2bApiClient apiClient,
-                    String accessToken, String requestId, Map<String, String> headers) {
+                    String accessToken, String trafficAccessToken,
+                    String requestId, Map<String, String> headers) {
         this.sandboxId          = info.getSandboxId();
         // The create/connect responses carry `domain` only when the gateway overrides it
         // (it is nullable/omitempty); otherwise fall back to the configured E2B_DOMAIN,
@@ -79,14 +90,15 @@ public class Sandbox implements AutoCloseable {
         this.connectionConfig   = config;
         this.apiClient          = apiClient;
         this.envdAccessToken    = accessToken;
+        this.trafficAccessToken = trafficAccessToken;
         this.requestId          = requestId;
         this.headers            = headers == null || headers.isEmpty()
                 ? Collections.emptyMap()
                 : Collections.unmodifiableMap(new LinkedHashMap<>(headers));
 
         String envdUrl = config.getSandboxUrl(sandboxId, sandboxDomain);
-        this.commands = new Commands(apiClient, envdUrl, accessToken);
-        this.files    = new Filesystem(apiClient, envdUrl, accessToken);
+        this.commands = new Commands(apiClient, envdUrl, accessToken, trafficAccessToken);
+        this.files    = new Filesystem(apiClient, envdUrl, accessToken, trafficAccessToken);
         this.git      = new Git(commands);
     }
 
@@ -111,7 +123,7 @@ public class Sandbox implements AutoCloseable {
 
         ApiResponse<SandboxInfo> response = api.postWithResponse("/sandboxes", body, SandboxInfo.class);
         SandboxInfo info = response.getBody();
-        return new Sandbox(info, config, api, info.getEnvdAccessToken(),
+        return new Sandbox(info, config, api, info.getEnvdAccessToken(), info.getTrafficAccessToken(),
                 response.requestId(), response.headersAsMap());
     }
 
@@ -567,7 +579,9 @@ public class Sandbox implements AutoCloseable {
         info.setSandboxDomain(response.getSandboxDomain());
         info.setTemplateId(response.getTemplateId());
         info.setEnvdAccessToken(response.getEnvdAccessToken());
+        info.setTrafficAccessToken(response.getTrafficAccessToken());
         info.setEnvdVersion(response.getEnvdVersion());
-        return new Sandbox(info, config, api, response.getEnvdAccessToken(), requestId, headers);
+        return new Sandbox(info, config, api, response.getEnvdAccessToken(),
+                response.getTrafficAccessToken(), requestId, headers);
     }
 }
