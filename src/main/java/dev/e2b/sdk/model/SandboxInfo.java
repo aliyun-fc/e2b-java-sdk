@@ -87,4 +87,12 @@ public class SandboxInfo {
     /** Access token for envd API calls inside the sandbox. */
     @JsonProperty("envdAccessToken")
     private String envdAccessToken;
+
+    /**
+     * Token required to reach the sandbox via the proxy when public traffic is restricted
+     * ({@code network.allowPublicTraffic=false}). Null when public access is allowed.
+     * Callers must send header {@code e2b-traffic-access-token} with this value.
+     */
+    @JsonProperty("trafficAccessToken")
+    private String trafficAccessToken;
 }

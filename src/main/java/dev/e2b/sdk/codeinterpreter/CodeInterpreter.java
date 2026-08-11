@@ -241,6 +241,10 @@ public class CodeInterpreter implements AutoCloseable {
         if (accessToken != null && !accessToken.isEmpty()) {
             builder.header("X-Access-Token", accessToken);
         }
+        String trafficToken = sandbox.getTrafficAccessToken();
+        if (trafficToken != null && !trafficToken.isEmpty()) {
+            builder.header(Sandbox.TRAFFIC_ACCESS_TOKEN_HEADER, trafficToken);
+        }
         Map<String, String> extra = sandbox.getConnectionConfig().getExtraSandboxHeaders();
         if (extra != null) {
             for (Map.Entry<String, String> e : extra.entrySet()) {

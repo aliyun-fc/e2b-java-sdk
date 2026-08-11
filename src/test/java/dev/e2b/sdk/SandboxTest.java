@@ -60,9 +60,29 @@ class SandboxTest {
         assertEquals("sandbox.e2b.app",    sandbox.getSandboxDomain());
         assertEquals("req-create-1",       sandbox.getRequestId());
         assertEquals("req-create-1",       sandbox.getHeaders().get("X-Request-ID"));
+        assertNull(sandbox.getTrafficAccessToken());
         assertNotNull(sandbox.getCommands());
         assertNotNull(sandbox.getFiles());
         assertNotNull(sandbox.getGit());
+    }
+
+    @Test
+    void create_parsesTrafficAccessTokenWhenPublicTrafficRestricted() {
+        server.enqueue(new MockResponse()
+                .setBody("{\"sandboxID\":\"sbx-secure\",\"domain\":\"sandbox.e2b.app\","
+                        + "\"templateID\":\"base\",\"clientID\":\"c-1\",\"envdVersion\":\"0.1.0\","
+                        + "\"envdAccessToken\":\"tok-abc\","
+                        + "\"trafficAccessToken\":\"traffic-secret\","
+                        + "\"network\":{\"allowPublicTraffic\":false}}")
+                .setHeader("Content-Type", "application/json"));
+
+        NewSandbox opts = NewSandbox.builder()
+                .network(SandboxNetworkOpts.builder().allowPublicTraffic(false).build())
+                .build();
+        Sandbox sandbox = Sandbox.create("base", config, opts);
+
+        assertEquals("sbx-secure", sandbox.getSandboxId());
+        assertEquals("traffic-secret", sandbox.getTrafficAccessToken());
     }
 
     @Test
@@ -127,6 +147,21 @@ class SandboxTest {
         assertEquals("sbx-xyz", sandbox.getSandboxId());
         assertEquals("fc-req-connect-1", sandbox.getRequestId());
         assertEquals("fc-req-connect-1", sandbox.getHeaders().get("x-fc-request-id"));
+        assertNull(sandbox.getTrafficAccessToken());
+    }
+
+    @Test
+    void connect_parsesTrafficAccessTokenWhenPresent() {
+        server.enqueue(new MockResponse()
+                .setBody("{\"sandboxID\":\"sbx-xyz\",\"domain\":\"sandbox.e2b.app\","
+                        + "\"templateID\":\"python\",\"envdVersion\":\"0.1.0\","
+                        + "\"envdAccessToken\":\"tok-xyz\","
+                        + "\"trafficAccessToken\":\"connect-traffic-tok\"}")
+                .setHeader("Content-Type", "application/json"));
+
+        Sandbox sandbox = Sandbox.connect("sbx-xyz", config);
+        assertEquals("sbx-xyz", sandbox.getSandboxId());
+        assertEquals("connect-traffic-tok", sandbox.getTrafficAccessToken());
     }
 
     // -------------------------------------------------------------------------
