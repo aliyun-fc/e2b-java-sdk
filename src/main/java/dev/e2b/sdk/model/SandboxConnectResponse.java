@@ -28,6 +28,13 @@ public class SandboxConnectResponse {
     @JsonProperty("envdAccessToken")
     private String envdAccessToken;
 
+    /**
+     * Token required to reach the sandbox via the proxy when public traffic is restricted.
+     * Null when public access is allowed. Same rules as create response.
+     */
+    @JsonProperty("trafficAccessToken")
+    private String trafficAccessToken;
+
     @JsonProperty("domain")
     @JsonAlias({"sandbox_domain", "sandboxDomain"})
     private String sandboxDomain;

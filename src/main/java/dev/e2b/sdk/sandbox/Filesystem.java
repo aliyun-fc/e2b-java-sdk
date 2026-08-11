@@ -1,6 +1,7 @@
 package dev.e2b.sdk.sandbox;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import dev.e2b.sdk.Sandbox;
 import dev.e2b.sdk.client.E2bApiClient;
 import dev.e2b.sdk.exception.SandboxException;
 import dev.e2b.sdk.model.EntryInfo;
@@ -32,6 +33,8 @@ public class Filesystem {
     private final E2bApiClient api;
     private final String envdUrl;
     private final String accessToken;
+    /** Present when the sandbox restricts public traffic; sent as {@link Sandbox#TRAFFIC_ACCESS_TOKEN_HEADER}. */
+    private final String trafficAccessToken;
 
     /**
      * Read a file as a UTF-8 string.
@@ -50,12 +53,11 @@ public class Filesystem {
      */
     public byte[] readBytes(String path, String user) {
         HttpUrl url = buildFileUrl(path, user);
-        Request req = new Request.Builder()
+        Request.Builder builder = new Request.Builder()
                 .url(url)
-                .get()
-                .header("X-Access-Token", tok())
-                .build();
-        try (Response resp = api.httpClient().newCall(req).execute()) {
+                .get();
+        applyAuth(builder, null);
+        try (Response resp = api.httpClient().newCall(builder.build()).execute()) {
             handleError(resp, "read");
             return resp.body() != null ? resp.body().bytes() : new byte[0];
         } catch (IOException e) {
@@ -92,8 +94,8 @@ public class Filesystem {
 
         Request.Builder builder = new Request.Builder()
                 .url(urlBuilder.build())
-                .post(mp.build())
-                .header("X-Access-Token", tok());
+                .post(mp.build());
+        applyAuth(builder, null);
         if (metadata != null) {
             metadata.forEach((k, v) -> builder.header("X-Metadata-" + k, v));
         }
@@ -296,14 +298,24 @@ public class Filesystem {
         Request.Builder builder = new Request.Builder()
                 .url(envdUrl + rpcPath)
                 .post(RequestBody.create(jsonBody, JSON))
-                .header("Connect-Protocol-Version", "1")
-                .header("X-Access-Token", tok());
+                .header("Connect-Protocol-Version", "1");
+        applyAuth(builder, user);
+        return builder.build();
+    }
+
+    private void applyAuth(Request.Builder builder, String user) {
+        String token = tok();
+        if (!token.isEmpty()) {
+            builder.header("X-Access-Token", token);
+        }
+        if (trafficAccessToken != null && !trafficAccessToken.isEmpty()) {
+            builder.header(Sandbox.TRAFFIC_ACCESS_TOKEN_HEADER, trafficAccessToken);
+        }
         if (user != null && !user.isEmpty()) {
             String basic = java.util.Base64.getEncoder()
                     .encodeToString((user + ":").getBytes(StandardCharsets.UTF_8));
             builder.header("Authorization", "Basic " + basic);
         }
-        return builder.build();
     }
 
     private String tok() {
