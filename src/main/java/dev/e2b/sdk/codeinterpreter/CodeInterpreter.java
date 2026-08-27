@@ -5,18 +5,25 @@ import dev.e2b.sdk.Sandbox;
 import dev.e2b.sdk.client.ConnectionConfig;
 import dev.e2b.sdk.exception.SandboxException;
 import dev.e2b.sdk.exception.SandboxNotFoundException;
+import dev.e2b.sdk.exception.TimeoutException;
 import dev.e2b.sdk.model.NewSandbox;
 import okhttp3.*;
 import okio.BufferedSource;
 
 import java.io.IOException;
+import java.net.SocketTimeoutException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Code Interpreter — runs Python/JavaScript/etc. inside a sandbox via the in-sandbox Jupyter server
@@ -41,22 +48,48 @@ public class CodeInterpreter implements AutoCloseable {
     public static final int JUPYTER_PORT = 49999;
     public static final int DEFAULT_TIMEOUT_SECONDS = 300;
 
+    private static final AtomicInteger TIMEOUT_THREAD_SEQUENCE = new AtomicInteger();
+    private static final ScheduledThreadPoolExecutor TIMEOUT_SCHEDULER = newTimeoutScheduler();
+
     private final Sandbox sandbox;
     private final OkHttpClient http;
     private final com.fasterxml.jackson.databind.ObjectMapper mapper;
     private final String jupyterUrl;
     private final String accessToken;
+    private final double requestTimeoutSeconds;
+
+    private enum TimeoutState {
+        ACTIVE,
+        REQUEST_TIMED_OUT,
+        EXECUTION_TIMED_OUT,
+        COMPLETE
+    }
+
+    private static ScheduledThreadPoolExecutor newTimeoutScheduler() {
+        ThreadFactory factory = runnable -> {
+            Thread thread = new Thread(runnable,
+                    "e2b-code-timeout-" + TIMEOUT_THREAD_SEQUENCE.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        };
+        ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1, factory);
+        scheduler.setRemoveOnCancelPolicy(true);
+        return scheduler;
+    }
 
     private CodeInterpreter(Sandbox sandbox) {
         this.sandbox = sandbox;
         this.mapper = sandbox.getApiClient().mapper;
         this.accessToken = sandbox.getEnvdAccessToken();
         ConnectionConfig cfg = sandbox.getConnectionConfig();
+        this.requestTimeoutSeconds = cfg.getRequestTimeout();
         String scheme = cfg.isDebug() ? "http" : "https";
         this.jupyterUrl = scheme + "://" + sandbox.getHost(JUPYTER_PORT);
         // A dedicated HTTP/1.1 client with no read timeout: code execution streams NDJSON and can
         // legitimately take a long time. Forcing HTTP/1.1 (matching the Python SDK) keeps a 1:1
-        // TCP-to-request mapping so client disconnects reliably cancel server-side execution.
+        // TCP-to-request mapping and gives the service a chance to observe client disconnects.
+        // Compatibility gateways can terminate and re-proxy the connection, so remote execution
+        // cancellation remains a server-side best-effort behavior rather than an SDK guarantee.
         this.http = sandbox.getApiClient().httpClient().newBuilder()
                 .readTimeout(0, TimeUnit.MILLISECONDS)
                 .protocols(Collections.singletonList(Protocol.HTTP_1_1))
@@ -128,6 +161,7 @@ public class CodeInterpreter implements AutoCloseable {
             throw new IllegalArgumentException(
                     "Provide either language or context, but not both at the same time.");
         }
+        int executionTimeoutSeconds = resolveExecutionTimeoutSeconds(timeoutSeconds);
 
         Map<String, Object> payload = new LinkedHashMap<String, Object>();
         payload.put("code", code);
@@ -140,13 +174,39 @@ public class CodeInterpreter implements AutoCloseable {
                         MediaType.get("application/json; charset=utf-8")))
                 .build();
 
+        // Keep request and execution as independent absolute deadlines. The execution deadline
+        // starts when /execute is dispatched rather than when response headers arrive: some E2B-
+        // compatible gateways buffer streaming response headers, and starting later would make a
+        // short execution timeout ineffective. NDJSON keepalives never extend either deadline.
+        Call call = http.newCall(req);
+        AtomicReference<TimeoutState> timeoutState =
+                new AtomicReference<TimeoutState>(TimeoutState.ACTIVE);
+        ScheduledFuture<?> requestDeadline = scheduleCancellation(
+                call,
+                secondsToNanos(requestTimeoutSeconds),
+                TimeUnit.NANOSECONDS,
+                timeoutState,
+                TimeoutState.REQUEST_TIMED_OUT);
+        ScheduledFuture<?> executionDeadline = scheduleCancellation(
+                call,
+                executionTimeoutSeconds,
+                TimeUnit.SECONDS,
+                timeoutState,
+                TimeoutState.EXECUTION_TIMED_OUT);
         Execution execution = new Execution();
-        try (Response resp = http.newCall(req).execute()) {
+        boolean responseEstablished = false;
+        try (Response resp = call.execute()) {
             throwIfError(resp);
+            responseEstablished = true;
+            cancelDeadline(requestDeadline);
+            throwIfTimedOut(timeoutState.get(), executionTimeoutSeconds);
+
             ResponseBody body = resp.body();
             if (body == null) {
+                completeOrThrow(timeoutState, executionTimeoutSeconds);
                 return execution;
             }
+
             BufferedSource source = body.source();
             String line;
             while ((line = source.readUtf8Line()) != null) {
@@ -154,10 +214,98 @@ public class CodeInterpreter implements AutoCloseable {
                     parseLine(mapper, execution, line);
                 }
             }
+            completeOrThrow(timeoutState, executionTimeoutSeconds);
             return execution;
         } catch (IOException e) {
+            TimeoutException timeout = timeoutException(
+                    timeoutState.get(), executionTimeoutSeconds, e);
+            if (timeout != null) {
+                throw timeout;
+            }
+            if (!responseEstablished
+                    && requestTimeoutSeconds > 0
+                    && e instanceof SocketTimeoutException) {
+                throw new TimeoutException(
+                        "Code execution request timed out after "
+                                + requestTimeoutSeconds + " seconds", e);
+            }
             throw new SandboxException("Code execution request failed", e);
+        } finally {
+            cancelDeadline(requestDeadline);
+            cancelDeadline(executionDeadline);
+            timeoutState.compareAndSet(TimeoutState.ACTIVE, TimeoutState.COMPLETE);
         }
+    }
+
+    private static ScheduledFuture<?> scheduleCancellation(
+            Call call,
+            long timeout,
+            TimeUnit unit,
+            AtomicReference<TimeoutState> state,
+            TimeoutState timedOutState) {
+        if (timeout <= 0) {
+            return null;
+        }
+        return TIMEOUT_SCHEDULER.schedule(() -> {
+            if (state.compareAndSet(TimeoutState.ACTIVE, timedOutState)) {
+                call.cancel();
+            }
+        }, timeout, unit);
+    }
+
+    static int resolveExecutionTimeoutSeconds(Integer timeoutSeconds) {
+        int resolved = timeoutSeconds != null ? timeoutSeconds : DEFAULT_TIMEOUT_SECONDS;
+        if (resolved < 0) {
+            throw new IllegalArgumentException("timeoutSeconds must be greater than or equal to 0.");
+        }
+        return resolved;
+    }
+
+    private static void cancelDeadline(ScheduledFuture<?> deadline) {
+        if (deadline != null) {
+            deadline.cancel(false);
+        }
+    }
+
+    private static long secondsToNanos(double seconds) {
+        if (seconds <= 0) {
+            return 0;
+        }
+        double nanos = seconds * TimeUnit.SECONDS.toNanos(1);
+        return nanos >= Long.MAX_VALUE ? Long.MAX_VALUE : (long) nanos;
+    }
+
+    private TimeoutException timeoutException(TimeoutState state, int executionTimeoutSeconds) {
+        return timeoutException(state, executionTimeoutSeconds, null);
+    }
+
+    private void throwIfTimedOut(TimeoutState state, int executionTimeoutSeconds) {
+        TimeoutException timeout = timeoutException(state, executionTimeoutSeconds);
+        if (timeout != null) {
+            throw timeout;
+        }
+    }
+
+    private void completeOrThrow(
+            AtomicReference<TimeoutState> state, int executionTimeoutSeconds) {
+        if (!state.compareAndSet(TimeoutState.ACTIVE, TimeoutState.COMPLETE)) {
+            throwIfTimedOut(state.get(), executionTimeoutSeconds);
+        }
+    }
+
+    private TimeoutException timeoutException(
+            TimeoutState state, int executionTimeoutSeconds, IOException cause) {
+        if (state == TimeoutState.REQUEST_TIMED_OUT) {
+            return new TimeoutException(
+                    "Code execution request timed out after "
+                            + requestTimeoutSeconds + " seconds", cause);
+        }
+        if (state == TimeoutState.EXECUTION_TIMED_OUT) {
+            return new TimeoutException(
+                    "Code execution timed out after "
+                            + executionTimeoutSeconds + " seconds", cause);
+        }
+        return null;
     }
 
     // -------------------------------------------------------------------------

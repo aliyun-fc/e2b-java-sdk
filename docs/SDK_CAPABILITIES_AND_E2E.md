@@ -88,7 +88,7 @@
 | `EnvVarsE2eTest` | envVars | ✅ |
 | `DynamicPortE2eTest` | getHost / 动态端口 | ✅ |
 | `MetadataE2eTest` | metadata + Sandbox.list 过滤 | ✅ |
-| `CodeInterpreterE2eTest` | runCode / 富结果 / envVars / 上下文 / 错误捕获 | ✅ |
+| `CodeInterpreterE2eTest` | runCode / 富结果 / envVars / 上下文 / 错误捕获 / timeout | ✅ |
 | `TemplateE2eTest` | Template list / get | ✅ |
 | `TemplateBuildE2eTest` | buildFromImage（v3）→ 建沙箱运行 | gated（`E2E_BUILD_IMAGE`） |
 | `PauseResumeE2eTest` | pause + connect 恢复并保留文件 | ✅ |
