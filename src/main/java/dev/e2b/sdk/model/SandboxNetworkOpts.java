@@ -9,7 +9,8 @@ import java.util.Map;
 public class SandboxNetworkOpts {
     @JsonProperty("allowOut") private List<String> allowOut;
     @JsonProperty("denyOut") private List<String> denyOut;
-    private Map<String, Object> rules;
+    /** Ordered transform rules keyed by host, domain pattern, IP address, or CIDR. */
+    private Map<String, List<SandboxNetworkRule>> rules;
     @JsonProperty("allowPublicTraffic") private Boolean allowPublicTraffic;
     @JsonProperty("maskRequestHost") private String maskRequestHost;
 }
