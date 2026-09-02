@@ -16,14 +16,14 @@ Maven:
 <dependency>
     <groupId>com.alibaba.serverless</groupId>
     <artifactId>e2b-java-sdk</artifactId>
-    <version>2.2.2</version>
+    <version>3.0.0</version>
 </dependency>
 ```
 
 Gradle:
 
 ```groovy
-implementation 'com.alibaba.serverless:e2b-java-sdk:2.2.2'
+implementation 'com.alibaba.serverless:e2b-java-sdk:3.0.0'
 ```
 
 Requires **Java 8+**.
