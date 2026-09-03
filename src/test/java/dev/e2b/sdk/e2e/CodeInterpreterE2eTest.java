@@ -4,10 +4,12 @@ import dev.e2b.sdk.codeinterpreter.CodeInterpreter;
 import dev.e2b.sdk.codeinterpreter.Context;
 import dev.e2b.sdk.codeinterpreter.Execution;
 import dev.e2b.sdk.exception.SandboxException;
+import dev.e2b.sdk.exception.TimeoutException;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -17,19 +19,23 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * <p>Requires a code-interpreter template (alias {@code code-interpreter-v1} by default; override
  * with {@code E2E_CI_TEMPLATE}). If the template is unavailable in the target environment, the
- * tests are skipped rather than failed.
+ * general capability tests are skipped rather than failed.
  */
 class CodeInterpreterE2eTest extends E2eTestBase {
 
     private CodeInterpreter createCodeInterpreter() {
         try {
-            return CodeInterpreter.create(config.codeInterpreterTemplate(), config.toConnectionConfig());
+            return createRequiredCodeInterpreter();
         } catch (SandboxException e) {
             Assumptions.assumeTrue(false,
                     "code-interpreter template '" + config.codeInterpreterTemplate()
                             + "' not available in this environment: " + e.getMessage());
             throw e; // unreachable
         }
+    }
+
+    private CodeInterpreter createRequiredCodeInterpreter() {
+        return CodeInterpreter.create(config.codeInterpreterTemplate(), config.toConnectionConfig());
     }
 
     @Test
@@ -111,6 +117,43 @@ class CodeInterpreterE2eTest extends E2eTestBase {
                     + String.valueOf(exec.getError().getTraceback());
             assertTrue(details.contains("boom") || details.contains("ValueError"),
                     "error details should reference the raised exception: " + details);
+        } finally {
+            ci.close();
+        }
+    }
+
+    @Test
+    void runCodeTimeoutReturnsPromptlyAndKeepsSandboxUsable() {
+        // This regression must fail on authentication, networking, or template errors rather than
+        // turning an infrastructure problem into a skipped timeout result.
+        CodeInterpreter ci = createRequiredCodeInterpreter();
+        try {
+            // Warm the Jupyter kernel so request/startup latency is not mistaken for execution time.
+            Execution warmup = ci.runCode("1", "python", null, null, 10);
+            assertNull(warmup.getError());
+
+            long startedAt = System.nanoTime();
+            TimeoutException error = assertThrows(TimeoutException.class, () -> ci.runCode(
+                    "import time\n"
+                            + "time.sleep(5)\n"
+                            + "print('late')",
+                    "python", null, null, 1));
+            long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
+
+            assertTrue(error.getMessage().contains("1"));
+            assertTrue(elapsedMillis >= 700,
+                    "execution timeout fired too early: " + elapsedMillis + "ms");
+            assertTrue(elapsedMillis < 4000,
+                    "execution timeout was not enforced promptly: " + elapsedMillis + "ms");
+
+            // A transport cancellation always stops the Java caller from waiting. Whether a
+            // compatibility gateway propagates that disconnect quickly enough to interrupt the
+            // remote kernel is a server-side best-effort behavior. The public SDK guarantee is
+            // that a later execution can still use the same sandbox.
+            Execution recovery = ci.runCode(
+                    "print('after-timeout')", "python", null, null, 10);
+            assertNull(recovery.getError());
+            assertEquals("after-timeout", recovery.getLogs().getStdout().get(0).trim());
         } finally {
             ci.close();
         }
