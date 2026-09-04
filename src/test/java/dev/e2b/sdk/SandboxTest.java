@@ -1,5 +1,7 @@
 package dev.e2b.sdk;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.e2b.sdk.client.ConnectionConfig;
 import dev.e2b.sdk.exception.AuthenticationException;
 import dev.e2b.sdk.exception.RateLimitException;
@@ -8,9 +10,11 @@ import dev.e2b.sdk.exception.SandboxNotFoundException;
 import dev.e2b.sdk.model.*;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
+import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.*;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +43,21 @@ class SandboxTest {
     @AfterEach
     void tearDown() throws IOException {
         server.shutdown();
+    }
+
+    private Map<String, List<SandboxNetworkRule>> transformedNetworkRules() {
+        Map<String, String> headers = new HashMap<String, String>();
+        headers.put("Authorization", "Bearer token");
+
+        SandboxNetworkRule rule = SandboxNetworkRule.builder()
+                .transform(SandboxNetworkTransform.builder()
+                        .headers(headers)
+                        .build())
+                .build();
+
+        return Collections.singletonMap(
+                "api.openai.com",
+                Collections.singletonList(rule));
     }
 
     // -------------------------------------------------------------------------
@@ -83,6 +102,55 @@ class SandboxTest {
 
         assertEquals("sbx-secure", sandbox.getSandboxId());
         assertEquals("traffic-secret", sandbox.getTrafficAccessToken());
+    }
+
+    @Test
+    void create_serializesTypedNetworkRules() throws Exception {
+        server.enqueue(new MockResponse()
+                .setBody("{\"sandboxID\":\"sbx-rules\",\"domain\":\"sandbox.e2b.app\","
+                        + "\"templateID\":\"base\",\"envdVersion\":\"0.1.0\","
+                        + "\"envdAccessToken\":\"tok-rules\"}")
+                .setHeader("Content-Type", "application/json"));
+
+        SandboxNetworkOpts network = SandboxNetworkOpts.builder()
+                .allowOut(Collections.singletonList("api.openai.com"))
+                .rules(transformedNetworkRules())
+                .build();
+
+        Sandbox.create("base", config, NewSandbox.builder().network(network).build());
+
+        RecordedRequest request = server.takeRequest();
+        JsonNode body = new ObjectMapper().readTree(request.getBody().readUtf8());
+        assertEquals("api.openai.com", body.path("network").path("allowOut").get(0).asText());
+        assertEquals(
+                "Bearer token",
+                body.path("network").path("rules").path("api.openai.com").get(0)
+                        .path("transform").path("headers").path("Authorization").asText());
+    }
+
+    @Test
+    void updateNetwork_serializesTypedNetworkRules() throws Exception {
+        server.enqueue(new MockResponse()
+                .setBody("{\"sandboxID\":\"sbx-rules\",\"domain\":\"sandbox.e2b.app\","
+                        + "\"templateID\":\"base\",\"envdVersion\":\"0.1.0\","
+                        + "\"envdAccessToken\":\"tok-rules\"}")
+                .setHeader("Content-Type", "application/json"));
+        Sandbox sandbox = Sandbox.create("base", config);
+        server.takeRequest();
+
+        server.enqueue(new MockResponse().setResponseCode(204));
+        sandbox.updateNetwork(SandboxNetworkUpdate.builder()
+                .rules(transformedNetworkRules())
+                .build());
+
+        RecordedRequest request = server.takeRequest();
+        JsonNode body = new ObjectMapper().readTree(request.getBody().readUtf8());
+        assertEquals("PUT", request.getMethod());
+        assertEquals("/sandboxes/sbx-rules/network", request.getPath());
+        assertEquals(
+                "Bearer token",
+                body.path("rules").path("api.openai.com").get(0)
+                        .path("transform").path("headers").path("Authorization").asText());
     }
 
     @Test
@@ -269,6 +337,26 @@ class SandboxTest {
         GetSandboxOutput output = Sandbox.getInfo("sbx-1", config);
         assertEquals("fc-req-get-1", output.getRequestId());
         assertEquals("fc-req-get-1", output.getHeaders().get("x-fc-request-id"));
+    }
+
+    @Test
+    void getInfo_deserializesTypedNetworkRules() {
+        server.enqueue(new MockResponse()
+                .setBody("{\"sandboxID\":\"sbx-rules\",\"templateID\":\"base\","
+                        + "\"state\":\"running\",\"cpuCount\":2,\"memoryMB\":512,"
+                        + "\"envdVersion\":\"0.1.0\",\"startedAt\":\"2024-01-01T00:00:00Z\","
+                        + "\"endAt\":\"2024-01-01T00:05:00Z\","
+                        + "\"network\":{\"allowOut\":[\"api.openai.com\"],\"rules\":{"
+                        + "\"api.openai.com\":[{\"transform\":{\"headers\":{"
+                        + "\"Authorization\":\"Bearer token\"}}}]}}}")
+                .setHeader("Content-Type", "application/json"));
+
+        SandboxNetworkInfo network = Sandbox.getInfo("sbx-rules", config)
+                .getSandbox().getNetwork();
+        SandboxNetworkRule rule = network.getRules().get("api.openai.com").get(0);
+
+        assertEquals(Collections.singletonList("api.openai.com"), network.getAllowOut());
+        assertEquals("Bearer token", rule.getTransform().getHeaders().get("Authorization"));
     }
 
     // -------------------------------------------------------------------------
