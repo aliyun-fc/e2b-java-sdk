@@ -359,6 +359,26 @@ class SandboxTest {
         assertEquals("Bearer token", rule.getTransform().getHeaders().get("Authorization"));
     }
 
+    @Test
+    void getInfo_deserializesVolumeMounts() {
+        server.enqueue(new MockResponse()
+                .setBody("{\"sandboxID\":\"sbx-vol\",\"templateID\":\"base\","
+                        + "\"state\":\"running\",\"cpuCount\":2,\"memoryMB\":512,"
+                        + "\"envdVersion\":\"0.1.0\",\"startedAt\":\"2024-01-01T00:00:00Z\","
+                        + "\"endAt\":\"2024-01-01T00:05:00Z\","
+                        + "\"volumeMounts\":[{\"name\":\"vol-data\",\"path\":\"/mnt/data\"},"
+                        + "{\"name\":\"vol-cache\",\"path\":\"/mnt/cache\"}]}")
+                .setHeader("Content-Type", "application/json"));
+
+        List<SandboxVolumeMount> mounts = Sandbox.getInfo("sbx-vol", config)
+                .getSandbox().getVolumeMounts();
+        assertEquals(2, mounts.size());
+        assertEquals("vol-data", mounts.get(0).getName());
+        assertEquals("/mnt/data", mounts.get(0).getPath());
+        assertEquals("vol-cache", mounts.get(1).getName());
+        assertEquals("/mnt/cache", mounts.get(1).getPath());
+    }
+
     // -------------------------------------------------------------------------
     // Sandbox.list
     // -------------------------------------------------------------------------
@@ -385,6 +405,22 @@ class SandboxTest {
         assertEquals("req-abc", output.getRequestId());
         assertEquals("req-abc", output.getHeaders().get("X-Request-ID"));
         assertEquals("token-2", output.getHeaders().get("x-next-token"));
+    }
+
+    @Test
+    void list_deserializesVolumeMounts() {
+        server.enqueue(new MockResponse()
+                .setBody("[{\"sandboxID\":\"sbx-vol\",\"templateID\":\"base\",\"state\":\"running\","
+                        + "\"cpuCount\":2,\"memoryMB\":512,\"envdVersion\":\"0.1.0\","
+                        + "\"startedAt\":\"2024-01-01T00:00:00Z\",\"endAt\":\"2024-01-01T00:05:00Z\","
+                        + "\"volumeMounts\":[{\"name\":\"vol-data\",\"path\":\"/mnt/data\"}]}]")
+                .setHeader("Content-Type", "application/json"));
+
+        List<SandboxVolumeMount> mounts = Sandbox.list(config)
+                .getSandboxes().get(0).getVolumeMounts();
+        assertEquals(1, mounts.size());
+        assertEquals("vol-data", mounts.get(0).getName());
+        assertEquals("/mnt/data", mounts.get(0).getPath());
     }
 
     // -------------------------------------------------------------------------
