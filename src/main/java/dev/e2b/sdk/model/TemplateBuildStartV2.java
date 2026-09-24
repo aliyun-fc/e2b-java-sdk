@@ -7,6 +7,9 @@ import lombok.Data;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Body for {@code POST /v2/templates/{templateID}/builds/{buildID}}.
+ */
 @Data
 @Builder
 public class TemplateBuildStartV2 {
