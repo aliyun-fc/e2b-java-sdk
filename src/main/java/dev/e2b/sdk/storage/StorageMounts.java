@@ -9,8 +9,8 @@ import java.util.Map;
 
 /**
  * Typed helpers for FC sandbox storage / network mounts that are configured through sandbox
- * {@code metadata} (JuiceFS, OSS, NAS, VPC). Use the {@link #builder()} to assemble the metadata map
- * and pass it to {@code NewSandbox.builder().metadata(...)}.
+ * {@code metadata} (JuiceFS, OSS, AgenticBucket, NAS, VPC). Use the {@link #builder()} to assemble
+ * the metadata map and pass it to {@code NewSandbox.builder().metadata(...)}.
  *
  * <h3>Usage</h3>
  * <pre>{@code
@@ -35,6 +35,7 @@ public final class StorageMounts {
     public static final String VPC_METADATA_KEY = "fc.sandbox.network.vpc";
     public static final String JUICEFS_METADATA_KEY = "fc.sandbox.storage.juicefs";
     public static final String OSS_METADATA_KEY = "fc.sandbox.storage.oss";
+    public static final String AGENTIC_BUCKET_METADATA_KEY = "fc.sandbox.storage.agenticbucket";
     public static final String NAS_METADATA_KEY = "fc.sandbox.storage.nas";
     public static final String ROLE_ARN_METADATA_KEY = "fc.sandbox.auth.role";
 
@@ -83,6 +84,13 @@ public final class StorageMounts {
             return this;
         }
 
+        public Builder agenticBucket(AgenticBucketConfig agenticBucket) {
+            if (agenticBucket != null) {
+                metadata.put(AGENTIC_BUCKET_METADATA_KEY, toJson(agenticBucket));
+            }
+            return this;
+        }
+
         public Builder nas(NasConfig nas) {
             if (nas != null) {
                 metadata.put(NAS_METADATA_KEY, toJson(nas));
@@ -90,7 +98,7 @@ public final class StorageMounts {
             return this;
         }
 
-        /** RAM role ARN used for OSS access (metadata key {@code fc.sandbox.auth.role}). */
+        /** RAM role ARN used for OSS and AgenticBucket access. */
         public Builder roleArn(String roleArn) {
             if (roleArn != null && !roleArn.isEmpty()) {
                 metadata.put(ROLE_ARN_METADATA_KEY, roleArn);

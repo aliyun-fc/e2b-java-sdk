@@ -16,4 +16,7 @@ public class NasMountPoint {
 
     @JsonProperty("mountDir")
     private String mountDir;
+
+    @JsonProperty("enableTLS")
+    private Boolean enableTLS;
 }

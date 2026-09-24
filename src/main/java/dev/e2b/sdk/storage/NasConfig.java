@@ -13,6 +13,12 @@ import java.util.List;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class NasConfig {
 
+    @JsonProperty("groupId")
+    private Integer groupId;
+
+    @JsonProperty("userId")
+    private Integer userId;
+
     @JsonProperty("mountPoints")
     private List<NasMountPoint> mountPoints;
 }
