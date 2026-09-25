@@ -5,18 +5,21 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Builder;
 import lombok.Data;
 
-/** A single NAS mount point. */
+/** A single PolarFS mount point. */
 @Data
 @Builder
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class NasMountPoint {
+public class PolarFsMountPoint {
 
-    @JsonProperty("serverAddr")
-    private String serverAddr;
+    @JsonProperty("instanceId")
+    private String instanceId;
 
     @JsonProperty("mountDir")
     private String mountDir;
 
-    @JsonProperty("enableTLS")
-    private Boolean enableTLS;
+    @JsonProperty("remoteDir")
+    private String remoteDir;
+
+    @JsonProperty("readOnly")
+    private Boolean readOnly;
 }

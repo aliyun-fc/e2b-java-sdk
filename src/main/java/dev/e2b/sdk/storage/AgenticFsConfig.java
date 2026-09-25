@@ -7,18 +7,18 @@ import lombok.Data;
 
 import java.util.List;
 
-/** NAS storage configuration (serialized into metadata key {@code fc.sandbox.storage.nas}). */
+/** AgenticFS storage configuration. */
 @Data
 @Builder
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class NasConfig {
+public class AgenticFsConfig {
 
-    @JsonProperty("groupId")
+    @JsonProperty("groupID")
     private Integer groupId;
 
-    @JsonProperty("userId")
+    @JsonProperty("userID")
     private Integer userId;
 
     @JsonProperty("mountPoints")
-    private List<NasMountPoint> mountPoints;
+    private List<AgenticFsMountPoint> mountPoints;
 }

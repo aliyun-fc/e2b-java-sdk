@@ -6,7 +6,7 @@
 
     <groupId>com.alibaba.serverless</groupId>
     <artifactId>e2b-java-sdk</artifactId>
-    <version>2.2.3</version>
+    <version>3.0.5</version>
     <packaging>jar</packaging>
 
     <name>e2b Java SDK</name>

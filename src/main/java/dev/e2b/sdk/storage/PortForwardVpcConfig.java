@@ -7,15 +7,11 @@ import lombok.Data;
 
 import java.util.List;
 
-/**
- * VPC binding for a sandbox (serialized into metadata key {@code fc.sandbox.network.vpc}).
- *
- * <p>Binding a sandbox to a VPC lets it reach private endpoints (NAS, JuiceFS, internal services).
- */
+/** Port-forward VPC configuration. */
 @Data
 @Builder
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class VpcConfig {
+public class PortForwardVpcConfig {
 
     @JsonProperty("vpcId")
     private String vpcId;
@@ -25,7 +21,4 @@ public class VpcConfig {
 
     @JsonProperty("vSwitchIds")
     private List<String> vSwitchIds;
-
-    @JsonProperty("role")
-    private String role;
 }

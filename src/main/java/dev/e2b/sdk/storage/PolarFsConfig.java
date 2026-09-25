@@ -7,11 +7,11 @@ import lombok.Data;
 
 import java.util.List;
 
-/** NAS storage configuration (serialized into metadata key {@code fc.sandbox.storage.nas}). */
+/** PolarFS storage configuration. */
 @Data
 @Builder
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class NasConfig {
+public class PolarFsConfig {
 
     @JsonProperty("groupId")
     private Integer groupId;
@@ -20,5 +20,5 @@ public class NasConfig {
     private Integer userId;
 
     @JsonProperty("mountPoints")
-    private List<NasMountPoint> mountPoints;
+    private List<PolarFsMountPoint> mountPoints;
 }

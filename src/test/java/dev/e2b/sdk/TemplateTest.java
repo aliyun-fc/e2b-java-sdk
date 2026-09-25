@@ -10,7 +10,9 @@ import org.junit.jupiter.api.*;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -84,7 +86,7 @@ class TemplateTest {
 
     @Test
     @SuppressWarnings("deprecation")
-    void createAndStartBuild() {
+    void createAndStartBuild() throws InterruptedException {
         server.enqueue(new MockResponse()
                 .setResponseCode(202)
                 .setBody("{\"templateID\":\"tpl-new\",\"buildID\":\"b-new\",\"cpuCount\":2,"
@@ -98,11 +100,25 @@ class TemplateTest {
         assertEquals("tpl-new", created.getTemplateId());
         assertEquals("b-new", created.getBuildId());
 
+        Map<String, String> envVars = new HashMap<String, String>();
+        envVars.put("TEMPLATE_ENV", "from-template");
         Template.startBuild(
                 created.getTemplateId(),
                 created.getBuildId(),
-                TemplateBuildStartV2.builder().fromImage("python:3.11").build(),
+                TemplateBuildStartV2.builder()
+                        .fromImage("python:3.11")
+                        .envVars(envVars)
+                        .build(),
                 config);
+
+        okhttp3.mockwebserver.RecordedRequest buildReq = server.takeRequest();
+        assertEquals("/v2/templates", buildReq.getPath());
+        buildReq = server.takeRequest();
+        assertTrue(buildReq.getPath().contains("/builds/"));
+        String body = buildReq.getBody().readUtf8();
+        assertTrue(body.contains("\"fromImage\":\"python:3.11\""), body);
+        assertTrue(body.contains("\"envVars\""), body);
+        assertTrue(body.contains("\"TEMPLATE_ENV\":\"from-template\""), body);
     }
 
     @Test

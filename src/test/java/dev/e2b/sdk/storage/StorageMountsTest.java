@@ -86,6 +86,27 @@ class StorageMountsTest {
     }
 
     @Test
+    void agenticBucketMetadataHasPublicShape() throws Exception {
+        Map<String, String> metadata = StorageMounts.builder()
+                .agenticBucket(AgenticBucketConfig.builder()
+                        .mountPoints(Collections.singletonList(AgenticBucketMountPoint.builder()
+                                .agenticBucket("parent-ab").bucketName("space-bs")
+                                .endpoint("https://oss-internal").mountDir("/mnt/agentic")
+                                .readOnly(false).build()))
+                        .build())
+                .build();
+
+        JsonNode root = mapper.readTree(metadata.get(StorageMounts.AGENTIC_BUCKET_METADATA_KEY));
+        JsonNode mount = root.get("mountPoints").get(0);
+        assertEquals("parent-ab", mount.get("agenticBucket").asText());
+        assertEquals("space-bs", mount.get("bucketName").asText());
+        assertEquals("/mnt/agentic", mount.get("mountDir").asText());
+        assertFalse(mount.get("readOnly").asBoolean());
+        assertFalse(mount.has("bucketPath"));
+        assertFalse(mount.has("autoCreateBucket"));
+    }
+
+    @Test
     void putAllMergesExistingMetadata() {
         Map<String, String> existing = new LinkedHashMap<String, String>();
         existing.put("k", "v");

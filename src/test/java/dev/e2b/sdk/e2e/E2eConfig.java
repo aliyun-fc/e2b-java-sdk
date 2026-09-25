@@ -6,7 +6,8 @@ import dev.e2b.sdk.client.ConnectionConfig;
  * E2E connection settings loaded from environment variables.
  *
  * <p>Required: {@code E2B_API_KEY}
- * <p>Optional: {@code E2B_DOMAIN}, {@code E2B_API_URL}, {@code E2B_CLI_TEMPLATE}, {@code E2B_VERIFY_ENV}
+ * <p>Optional: {@code E2B_DOMAIN}, {@code E2B_API_URL}, {@code E2B_CLI_TEMPLATE},
+ * {@code E2B_VERIFY_ENV}, {@code E2E_BASE_TEMPLATE_IMAGE}
  */
 public final class E2eConfig {
 
@@ -82,6 +83,14 @@ public final class E2eConfig {
     /** Template (alias or id) for the code-interpreter sandbox; defaults to {@code code-interpreter-v1}. */
     public String codeInterpreterTemplate() {
         return envOrDefault("E2E_CI_TEMPLATE", "code-interpreter-v1");
+    }
+
+    /**
+     * Optional image used to build a temporary template before create-time env checks
+     * (mirrors Python e2b-e2e {@code E2E_BASE_TEMPLATE_IMAGE} in test_06_env).
+     */
+    public String baseTemplateImage() {
+        return emptyToNull(System.getenv("E2E_BASE_TEMPLATE_IMAGE"));
     }
 
     private static String envOrDefault(String name, String defaultValue) {
