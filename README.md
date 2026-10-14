@@ -76,6 +76,14 @@ try (CodeInterpreter ci = CodeInterpreter.create(config)) {
 }
 ```
 
+`runCode` keeps its existing arguments and `Execution` return type. Execution responses are now
+parsed incrementally, avoiding a complete intermediate line string. Decoding buffers are reused
+within each execution after the preceding frame reader closes, reducing allocation for many
+small output events. Existing Jackson read
+constraints continue to apply; the SDK does not add a default response-size cap or truncate output.
+All returned logs and results are still retained in memory, so large responses and concurrent
+executions require sufficient JVM heap.
+
 ## Features
 
 ### Sandbox lifecycle
