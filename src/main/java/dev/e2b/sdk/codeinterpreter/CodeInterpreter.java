@@ -208,12 +208,7 @@ public class CodeInterpreter implements AutoCloseable {
             }
 
             BufferedSource source = body.source();
-            String line;
-            while ((line = source.readUtf8Line()) != null) {
-                if (!line.isEmpty()) {
-                    parseLine(mapper, execution, line);
-                }
-            }
+            parseStream(mapper, execution, source);
             completeOrThrow(timeoutState, executionTimeoutSeconds);
             return execution;
         } catch (IOException e) {
@@ -435,30 +430,53 @@ public class CodeInterpreter implements AutoCloseable {
                                   Execution execution, String line) {
         try {
             JsonNode node = mapper.readTree(line);
-            JsonNode typeNode = node.get("type");
-            if (typeNode == null) {
-                return;
-            }
-            String type = typeNode.asText();
-            if ("result".equals(type)) {
-                execution.getResults().add(toResult(mapper, node));
-            } else if ("stdout".equals(type)) {
-                execution.getLogs().getStdout().add(textValue(node, "text"));
-            } else if ("stderr".equals(type)) {
-                execution.getLogs().getStderr().add(textValue(node, "text"));
-            } else if ("error".equals(type)) {
-                execution.setError(new ExecutionError(
-                        textValue(node, "name"),
-                        textValue(node, "value"),
-                        textValue(node, "traceback")));
-            } else if ("number_of_executions".equals(type)) {
-                JsonNode count = node.get("execution_count");
-                if (count != null && count.isNumber()) {
-                    execution.setExecutionCount(count.intValue());
-                }
-            }
+            appendOutput(mapper, execution, node);
         } catch (IOException e) {
             throw new SandboxException("Failed to parse execution output line", e);
+        }
+    }
+
+    static void parseStream(com.fasterxml.jackson.databind.ObjectMapper mapper,
+                            Execution execution, BufferedSource source) throws IOException {
+        Utf8FrameReaders readers = new Utf8FrameReaders();
+        while (!source.exhausted()) {
+            NdjsonFrameInputStream frame = new NdjsonFrameInputStream(source);
+            JsonNode node;
+            try {
+                // Incremental UTF-8 decoding preserves readUtf8Line's replacement behavior for
+                // malformed UTF-8, without creating a complete line String before JSON parsing.
+                node = mapper.readTree(readers.open(frame));
+            } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                throw new SandboxException("Failed to parse execution output line", e);
+            }
+            frame.finish();
+            appendOutput(mapper, execution, node);
+        }
+    }
+
+    private static void appendOutput(com.fasterxml.jackson.databind.ObjectMapper mapper,
+                                     Execution execution, JsonNode node) {
+        JsonNode typeNode = node.get("type");
+        if (typeNode == null) {
+            return;
+        }
+        String type = typeNode.asText();
+        if ("result".equals(type)) {
+            execution.getResults().add(toResult(mapper, node));
+        } else if ("stdout".equals(type)) {
+            execution.getLogs().getStdout().add(textValue(node, "text"));
+        } else if ("stderr".equals(type)) {
+            execution.getLogs().getStderr().add(textValue(node, "text"));
+        } else if ("error".equals(type)) {
+            execution.setError(new ExecutionError(
+                    textValue(node, "name"),
+                    textValue(node, "value"),
+                    textValue(node, "traceback")));
+        } else if ("number_of_executions".equals(type)) {
+            JsonNode count = node.get("execution_count");
+            if (count != null && count.isNumber()) {
+                execution.setExecutionCount(count.intValue());
+            }
         }
     }
 

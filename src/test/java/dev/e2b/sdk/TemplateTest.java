@@ -84,7 +84,7 @@ class TemplateTest {
 
     @Test
     @SuppressWarnings("deprecation")
-    void createAndStartBuild() {
+    void createAndStartBuild() throws InterruptedException {
         server.enqueue(new MockResponse()
                 .setResponseCode(202)
                 .setBody("{\"templateID\":\"tpl-new\",\"buildID\":\"b-new\",\"cpuCount\":2,"
@@ -101,8 +101,39 @@ class TemplateTest {
         Template.startBuild(
                 created.getTemplateId(),
                 created.getBuildId(),
-                TemplateBuildStartV2.builder().fromImage("python:3.11").build(),
+                TemplateBuildStartV2.builder()
+                        .fromImage("python:3.11")
+                        .build(),
                 config);
+
+        okhttp3.mockwebserver.RecordedRequest buildReq = server.takeRequest();
+        assertEquals("/v2/templates", buildReq.getPath());
+        buildReq = server.takeRequest();
+        assertTrue(buildReq.getPath().contains("/builds/"));
+        String body = buildReq.getBody().readUtf8();
+        assertTrue(body.contains("\"fromImage\":\"python:3.11\""), body);
+        assertFalse(body.contains("\"envVars\""), body);
+    }
+
+    @Test
+    void buildFromImage_createsBuildAndWaitsForReady() throws InterruptedException {
+        server.enqueue(new MockResponse().setBody("{\"templateID\":\"tpl-new\",\"buildID\":\"b-new\"}")
+                .setHeader("Content-Type", "application/json"));
+        server.enqueue(new MockResponse().setResponseCode(202));
+        server.enqueue(new MockResponse().setBody("{\"status\":\"ready\"}")
+                .setHeader("Content-Type", "application/json"));
+        server.enqueue(new MockResponse().setBody("{\"templateID\":\"tpl-new\"}")
+                .setHeader("Content-Type", "application/json"));
+
+        TemplateWithBuilds built = Template.buildFromImage("my-template", "python:3.11",
+                config, 5);
+
+        assertEquals("tpl-new", built.getTemplateId());
+        assertEquals("/v3/templates", server.takeRequest().getPath());
+        okhttp3.mockwebserver.RecordedRequest buildRequest = server.takeRequest();
+        assertEquals("/v2/templates/tpl-new/builds/b-new", buildRequest.getPath());
+        assertFalse(buildRequest.getBody().readUtf8().contains("envVars"));
+        assertEquals(4, server.getRequestCount());
     }
 
     @Test

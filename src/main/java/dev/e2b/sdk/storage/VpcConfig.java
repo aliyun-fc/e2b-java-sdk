@@ -25,4 +25,7 @@ public class VpcConfig {
 
     @JsonProperty("vSwitchIds")
     private List<String> vSwitchIds;
+
+    @JsonProperty("role")
+    private String role;
 }

@@ -14,14 +14,14 @@ Maven:
 <dependency>
     <groupId>com.alibaba.serverless</groupId>
     <artifactId>e2b-java-sdk</artifactId>
-    <version>2.2.3</version>
+    <version>3.0.7</version>
 </dependency>
 ```
 
 Gradle:
 
 ```groovy
-implementation 'com.alibaba.serverless:e2b-java-sdk:2.2.3'
+implementation 'com.alibaba.serverless:e2b-java-sdk:3.0.7'
 ```
 
 Requires **Java 8+**.
@@ -76,6 +76,14 @@ try (CodeInterpreter ci = CodeInterpreter.create(config)) {
 }
 ```
 
+`runCode` keeps its existing arguments and `Execution` return type. Execution responses are now
+parsed incrementally, avoiding a complete intermediate line string. Decoding buffers are reused
+within each execution after the preceding frame reader closes, reducing allocation for many
+small output events. Existing Jackson read
+constraints continue to apply; the SDK does not add a default response-size cap or truncate output.
+All returned logs and results are still retained in memory, so large responses and concurrent
+executions require sufficient JVM heap.
+
 ## Features
 
 ### Sandbox lifecycle
@@ -109,6 +117,37 @@ Sandbox.list(config);
 Sandbox.kill(sandboxId, config);
 Sandbox.pause(sandboxId, config);
 ```
+
+For sandbox creation, `envVars` keys and values are trimmed,
+blank keys are dropped, and empty maps are omitted from the request. A `null` value
+is normalized to `""`; at sandbox creation this explicitly overrides a same-named
+template variable with an empty string. Omit the key to keep the template value.
+Before normalization was introduced, null-valued entries were omitted by the SDK's
+JSON mapper, so callers relying on that behavior must omit those keys explicitly.
+
+Template build APIs do not expose `envVars`, which the gateway build endpoint does
+not support. Set environment variables when creating a sandbox instead.
+
+### Create/connect response fields
+
+These getters are available in the internal SDK since 3.0.4 and are included in
+public SDK version 3.0.5. Read the following fields directly from the returned
+sandbox without an additional `getInfo()` request:
+
+```java
+Sandbox sandbox = Sandbox.create("code-interpreter-v1", config);
+String templateId = sandbox.getTemplateId();
+String clientId = sandbox.getClientId();
+String envdVersion = sandbox.getEnvdVersion();
+```
+
+These are immutable snapshots of the create/connect response, not live status. Values are
+preserved as returned: missing or JSON-null fields produce `null`, and empty strings stay empty.
+The template identifier may be a server-returned alias. `clientID` is deprecated in the upstream
+protocol and may be absent; `envdVersion` is service-reported, not a runtime binary measurement.
+`getInfo()` still fetches fresh information without updating these getters. A new `connect()`
+instance captures its own response. For Code Interpreter, use the same getters on
+`ci.getSandbox()`; obtaining that wrapped sandbox also makes no request.
 
 ### Commands
 
@@ -174,22 +213,29 @@ Template.delete(templateId, config);
 
 > Custom template builds are image-based (`fromImage`); each template supports one build.
 
-### Storage & network mounts (FC Extensions)
+### Sandbox metadata (FC Extensions)
 
-云沙箱 can attach Alibaba Cloud storage and VPC networking via the `StorageMounts` helper (delivered through sandbox `metadata`):
+Use `SandboxMetadata` to configure Alibaba Cloud storage, networking, identity, and observability features:
 
 ```java
-import dev.e2b.sdk.storage.StorageMounts;
+import dev.e2b.sdk.SandboxMetadata;
 
-Map<String, String> metadata = StorageMounts.builder()
+Map<String, String> metadata = SandboxMetadata.builder()
         .oss(ossConfig)                        // dynamically mount OSS
+        .agenticBucket(agenticBucketConfig)    // mount an AgenticBucket BucketSpace
         .nas(nasConfig)                        // mount NAS
         .vpc(vpcConfig)                        // bind to a VPC
-        .roleArn("acs:ram::<uid>:role/<name>") // RAM role (required for OSS)
+        .roleArn("acs:ram::<uid>:role/<name>") // RAM role (required for OSS/AgenticBucket)
+        .put("custom.metadata.key", "value")  // pass through custom metadata
         .build();
 
 Sandbox.create("base", config, NewSandbox.builder().metadata(metadata).build());
 ```
+
+Typed helpers are also available for PortForward VPC, PolarFS, AgenticFS, sandbox ID,
+Managed Identity, logging, and tracing. Use `put`, `putJson`, or `putAll` for custom or
+new Gateway metadata that is not yet modeled by the SDK. Existing `StorageMounts`
+code remains supported.
 
 ## Configuration
 
