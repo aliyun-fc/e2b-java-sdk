@@ -20,9 +20,8 @@ public class ConnectionConfig {
     /** e2b API key. Defaults to E2B_API_KEY environment variable. */
     private final String apiKey;
 
-    /** Domain for the e2b API. Defaults to "e2b.app". */
-    @Builder.Default
-    private final String domain = DEFAULT_DOMAIN;
+    /** Explicit API/sandbox domain override, ahead of E2B_DOMAIN and API response domains. */
+    private final String domain;
 
     /** Override the API base URL. Defaults to https://api.{domain} */
     private final String apiUrl;
@@ -85,12 +84,28 @@ public class ConnectionConfig {
         return "https://api." + resolvedDomain();
     }
 
+    /** Configured domain, or the default when no explicit override was supplied. */
+    public String getDomain() {
+        return domain != null && !domain.isEmpty() ? domain : DEFAULT_DOMAIN;
+    }
+
     public String resolvedDomain() {
+        return resolvedSandboxDomain(null);
+    }
+
+    /**
+     * Explicit configuration wins over a gateway-provided domain. Only use the response
+     * domain when neither the builder nor E2B_DOMAIN specifies an override.
+     */
+    public String resolvedSandboxDomain(String responseDomain) {
+        if (domain != null && !domain.isEmpty()) {
+            return domain;
+        }
         String envDomain = System.getenv("E2B_DOMAIN");
         if (envDomain != null && !envDomain.isEmpty()) {
             return envDomain;
         }
-        return domain;
+        return responseDomain != null && !responseDomain.isEmpty() ? responseDomain : DEFAULT_DOMAIN;
     }
 
     public String getSandboxUrl(String sandboxId, String sandboxDomain) {
