@@ -202,10 +202,17 @@ Sandbox.create("base", config, NewSandbox.builder().metadata(metadata).build());
 | `apiKey` | `E2B_API_KEY` env | Cloud sandbox API key (required) |
 | `domain` | `E2B_DOMAIN` env / `e2b.app` | Sandbox domain — set to the regional domain (e.g. `cn-beijing.e2b.fc.aliyuncs.com`) |
 | `apiUrl` | `E2B_API_URL` env / `https://api.{domain}` | Control-plane API endpoint |
+| `sandboxUrl` | — | Override the complete sandbox base URL |
 | `requestTimeout` | `60.0` | Request timeout (seconds) |
 | `headers` / `apiHeaders` / `extraSandboxHeaders` | — | Extra request headers |
 | `httpClient` | shared client | Reuse a single OkHttp client (connection/dispatcher pooling) |
 | `debug` | `false` / `E2B_DEBUG` env | Debug logging |
+
+Sandbox domains are selected in this order: non-empty `domain` configuration,
+`E2B_DOMAIN`, the create/connect response domain, then `e2b.app`. A configured VPC
+domain therefore takes precedence over a public domain returned by the API.
+`sandboxUrl`, when set, overrides the complete sandbox URL regardless of the selected domain.
+`apiUrl` independently controls the control-plane endpoint.
 
 ## Building & testing
 

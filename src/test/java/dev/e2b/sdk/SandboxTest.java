@@ -76,7 +76,7 @@ class SandboxTest {
         Sandbox sandbox = Sandbox.create("base", config);
 
         assertEquals("sbx-abc",            sandbox.getSandboxId());
-        assertEquals("sandbox.e2b.app",    sandbox.getSandboxDomain());
+        assertEquals("localhost",          sandbox.getSandboxDomain());
         assertEquals("req-create-1",       sandbox.getRequestId());
         assertEquals("req-create-1",       sandbox.getHeaders().get("X-Request-ID"));
         assertNull(sandbox.getTrafficAccessToken());

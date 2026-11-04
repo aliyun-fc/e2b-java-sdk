@@ -83,12 +83,9 @@ public class Sandbox implements AutoCloseable {
                     String accessToken, String trafficAccessToken,
                     String requestId, Map<String, String> headers) {
         this.sandboxId          = info.getSandboxId();
-        // The create/connect responses carry `domain` only when the gateway overrides it
-        // (it is nullable/omitempty); otherwise fall back to the configured E2B_DOMAIN,
-        // matching the Python SDK (`sandbox_domain or connection_config.domain`).
-        this.sandboxDomain      = (info.getSandboxDomain() != null && !info.getSandboxDomain().isEmpty())
-                ? info.getSandboxDomain()
-                : config.resolvedDomain();
+        // Preserve explicit routing choices (for example a VPC endpoint) even when
+        // the create/connect API returns a public domain.
+        this.sandboxDomain      = config.resolvedSandboxDomain(info.getSandboxDomain());
         this.connectionConfig   = config;
         this.apiClient          = apiClient;
         this.envdAccessToken    = accessToken;
